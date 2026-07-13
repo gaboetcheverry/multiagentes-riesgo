@@ -153,22 +153,62 @@ st.markdown("""
 
 # Sidebar Setup
 st.sidebar.markdown("### 🔑 Configuración del Entorno")
-gemini_key_placeholder = ""
-if "GEMINI_API_KEY" in os.environ:
-    gemini_key_placeholder = os.environ["GEMINI_API_KEY"]
 
-api_key = st.sidebar.text_input(
-    "Gemini API Key", 
-    value=gemini_key_placeholder,
-    type="password",
-    help="Necesaria para ejecutar los agentes locales de CrewAI. Los datos se procesan en memoria y no se guardan."
+# Retrieve keys from environment if present
+gemini_key_placeholder = os.environ.get("GEMINI_API_KEY", "")
+openai_key_placeholder = os.environ.get("OPENAI_API_KEY", "")
+
+api_provider = st.sidebar.selectbox(
+    "Proveedor de IA Activo",
+    ["Google Gemini", "OpenAI"],
+    index=0,
+    help="Elige qué proveedor utilizar tanto para extraer datos de los archivos como para ejecutar los agentes."
 )
+
+api_key = ""
+openai_key = ""
+
+if api_provider == "Google Gemini":
+    api_key = st.sidebar.text_input(
+        "Gemini API Key", 
+        value=gemini_key_placeholder,
+        type="password",
+        help="Necesaria para ejecutar los agentes y analizar archivos con Google Gemini."
+    )
+    openai_key = openai_key_placeholder
+else:
+    openai_key = st.sidebar.text_input(
+        "OpenAI API Key", 
+        value=openai_key_placeholder,
+        type="password",
+        help="Necesaria para ejecutar los agentes y analizar archivos con OpenAI."
+    )
+    api_key = gemini_key_placeholder
+
+# Optional secondary key input
+with st.sidebar.expander("🔑 Configurar Clave Secundaria (Opcional)"):
+    if api_provider == "Google Gemini":
+        openai_key = st.sidebar.text_input("OpenAI API Key", value=openai_key, type="password")
+    else:
+        api_key = st.sidebar.text_input("Gemini API Key", value=api_key, type="password")
+
+# Set the environment variables in memory
+if api_key:
+    os.environ["GEMINI_API_KEY"] = api_key
+if openai_key:
+    os.environ["OPENAI_API_KEY"] = openai_key
+
+# Model options based on active provider
+if api_provider == "Google Gemini":
+    model_options = ["gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro", "gemini/gemini-2.5-flash"]
+else:
+    model_options = ["gpt-4o-mini", "gpt-4o", "o3-mini"]
 
 model_option = st.sidebar.selectbox(
     "Modelo de Lenguaje (LLM)",
-    ["gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro", "gemini/gemini-2.5-flash"],
+    model_options,
     index=0,
-    help="Modelo de Google Gemini a utilizar por los agentes."
+    help="Modelo de Inteligencia Artificial a utilizar por los agentes y el parsing de archivos."
 )
 
 st.sidebar.markdown("---")
@@ -356,24 +396,38 @@ elif scenario_choice == "Cervecería Artesanal (Baja California)":
 
 else: # Personalizado
     scenario_type = "salsa" # Use the salsa structure as template for customizable general inputs
-    scenario_title = st.sidebar.text_input("Título del Escenario", key="custom_title")
-    scenario_description = st.sidebar.text_area("Descripción del Escenario", key="custom_description")
+    scenario_title = st.sidebar.text_input("Título del Escenario", value=st.session_state['custom_title'])
+    scenario_description = st.sidebar.text_area("Descripción del Escenario", value=st.session_state['custom_description'])
     
     st.sidebar.markdown("### 🎛️ Parámetros Financieros Base")
-    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", step=1000.0, key="custom_revenue")
-    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", step=1000.0, key="custom_cogs")
-    chile_share = st.sidebar.slider("Proporción de Materia Prima Crítica en COGS", 0.05, 0.90, step=0.05, key="custom_share")
-    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", step=1000.0, key="custom_fixed")
+    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=st.session_state['custom_revenue'], step=1000.0)
+    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=st.session_state['custom_cogs'], step=1000.0)
+    chile_share = st.sidebar.slider("Proporción de Materia Prima Crítica en COGS", 0.05, 0.90, value=st.session_state['custom_share'], step=0.05)
+    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=st.session_state['custom_fixed'], step=1000.0)
     
     st.sidebar.markdown("#### Factores de Incertidumbre")
-    chile_risk_prob = st.sidebar.slider("Probabilidad de Crisis en Materia Prima (0-1)", 0.0, 1.0, step=0.05, key="custom_risk_prob")
-    chile_risk_increase = st.sidebar.slider("Aumento en Crisis (0-2)", 0.0, 2.0, step=0.05, key="custom_risk_increase")
+    chile_risk_prob = st.sidebar.slider("Probabilidad de Crisis en Materia Prima (0-1)", 0.0, 1.0, value=st.session_state['custom_risk_prob'], step=0.05)
+    chile_risk_increase = st.sidebar.slider("Aumento en Crisis (0-2)", 0.0, 2.0, value=st.session_state['custom_risk_increase'], step=0.05)
     
-    low_season_contraction_mean = st.sidebar.slider("Contracción Media Demanda (0-1)", 0.0, 1.0, step=0.05, key="custom_low_contraction")
-    low_season_contraction_std = st.sidebar.slider("Desv. Estándar Contracción", 0.01, 0.20, step=0.01, key="custom_low_std")
+    low_season_contraction_mean = st.sidebar.slider("Contracción Media Demanda (0-1)", 0.0, 1.0, value=st.session_state['custom_low_contraction'], step=0.05)
+    low_season_contraction_std = st.sidebar.slider("Desv. Estándar Contracción", 0.01, 0.20, value=st.session_state['custom_low_std'], step=0.01)
     
-    high_season_spike_mean = st.sidebar.slider("Expansión Media Demanda (0-2)", 0.0, 2.0, step=0.05, key="custom_high_spike")
-    high_season_spike_std = st.sidebar.slider("Desv. Estándar Expansión", 0.01, 0.30, step=0.01, key="custom_high_std")
+    high_season_spike_mean = st.sidebar.slider("Expansión Media Demanda (0-2)", 0.0, 2.0, value=st.session_state['custom_high_spike'], step=0.05)
+    high_season_spike_std = st.sidebar.slider("Desv. Estándar Expansión", 0.01, 0.30, value=st.session_state['custom_high_std'], step=0.01)
+    
+    # Sync back to session state so that changes are preserved and programmatically updatable
+    st.session_state['custom_title'] = scenario_title
+    st.session_state['custom_description'] = scenario_description
+    st.session_state['custom_revenue'] = baseline_revenue
+    st.session_state['custom_cogs'] = baseline_cogs
+    st.session_state['custom_share'] = chile_share
+    st.session_state['custom_fixed'] = fixed_costs
+    st.session_state['custom_risk_prob'] = chile_risk_prob
+    st.session_state['custom_risk_increase'] = chile_risk_increase
+    st.session_state['custom_low_contraction'] = low_season_contraction_mean
+    st.session_state['custom_low_std'] = low_season_contraction_std
+    st.session_state['custom_high_spike'] = high_season_spike_mean
+    st.session_state['custom_high_std'] = high_season_spike_std
     
     simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
     
@@ -406,6 +460,7 @@ else: # Personalizado
         'high_season_spike_std': high_season_spike_std
     }
 
+
 # ----------------- TABS LAYOUT -----------------
 
 tab1, tab2, tab3, tab4 = st.tabs([
@@ -434,20 +489,23 @@ with tab1:
         
         if uploaded_file is not None:
             if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != uploaded_file.name:
-                if not api_key:
+                active_key = openai_key if api_provider == "OpenAI" else api_key
+                provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
+                
+                if not active_key:
                     st.warning(
-                        "⚠️ Has subido un archivo, pero no has configurado tu **Gemini API Key** en la barra lateral. "
-                        "Ingresa la clave para que Gemini pueda analizar el archivo y rellenar el formulario de forma automática. "
+                        f"⚠️ Has subido un archivo, pero no has configurado tu **{provider_name} API Key** en la barra lateral. "
+                        f"Ingresa la clave para que {provider_name} pueda analizar el archivo y rellenar el formulario de forma automática. "
                         "De lo contrario, puedes rellenar los datos manualmente en la barra lateral."
                     )
                 else:
                     file_bytes = uploaded_file.read()
-                    with st.spinner(f"Analizando '{uploaded_file.name}' con Gemini AI y extrayendo variables..."):
+                    with st.spinner(f"Analizando '{uploaded_file.name}' con {provider_name} AI y extrayendo variables..."):
                         try:
                             doc_text = parse_business_file(file_bytes, uploaded_file.name)
                             # Clean the selected model name (strip "gemini/" prefix for google-generativeai SDK compatibility)
                             clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
-                            extracted = extract_parameters_via_gemini(doc_text, uploaded_file.name, api_key, model_name=clean_model_name)
+                            extracted = extract_parameters_via_gemini(doc_text, uploaded_file.name, active_key, model_name=clean_model_name)
                             
                             # Update session state values
                             st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
@@ -661,9 +719,12 @@ with tab3:
     if 'sim_data' not in st.session_state:
         st.warning("Primero debes correr la simulación en la pestaña anterior para poder analizarla con los agentes.")
     else:
-        # Prompt for Gemini Key check
-        if not api_key:
-            st.error("⚠️ Falta la Gemini API Key. Por favor, ingrésala en la barra lateral para poder ejecutar los agentes.")
+        # Check active provider key
+        active_key = openai_key if api_provider == "OpenAI" else api_key
+        provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
+        
+        if not active_key:
+            st.error(f"⚠️ Falta la API Key de {provider_name}. Por favor, ingrésala en la barra lateral para poder ejecutar los agentes.")
         else:
             if st.button("🤖 Iniciar Ejecución del Equipo de Agentes", type="primary", use_container_width=True):
                 # We have simulation data and API Key
@@ -683,6 +744,7 @@ with tab3:
                     # Run the crew
                     report_result = run_strategic_crew(
                         api_key=api_key,
+                        openai_key=openai_key,
                         scenario_name=sd['scenario_title'],
                         scenario_description=sd['scenario_description'],
                         metrics=sd['metrics'],

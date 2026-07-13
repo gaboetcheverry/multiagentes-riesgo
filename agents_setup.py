@@ -2,19 +2,28 @@ import os
 import sys
 from crewai import Agent, Task, Crew, Process
 
-def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, sensitivity, model_name="gemini/gemini-1.5-flash"):
+def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, sensitivity, model_name="gemini/gemini-1.5-flash", openai_key=None):
     """
     Sets up and runs the CrewAI agents to perform strategic risk analysis.
     Ingests the quantitative outputs from the Monte Carlo simulation.
     """
-    # Set the Gemini API key in the environment
+    # Set the keys in the environment if provided
     if api_key:
         os.environ["GEMINI_API_KEY"] = api_key
-    elif "GEMINI_API_KEY" not in os.environ:
-        raise ValueError("Gemini API Key is not set. Please provide it in the sidebar or set the GEMINI_API_KEY environment variable.")
+    if openai_key:
+        os.environ["OPENAI_API_KEY"] = openai_key
+        
+    # Check if we are running an OpenAI model or Gemini model
+    is_openai = (model_name.startswith("gpt-") or model_name.startswith("openai/") or model_name.startswith("o1-") or model_name.startswith("o3-"))
+    
+    if is_openai:
+        if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"]:
+            raise ValueError("OpenAI API Key is not set. Please provide it in the sidebar or set the OPENAI_API_KEY environment variable.")
+    else:
+        if "GEMINI_API_KEY" not in os.environ or not os.environ["GEMINI_API_KEY"]:
+            raise ValueError("Gemini API Key is not set. Please provide it in the sidebar or set the GEMINI_API_KEY environment variable.")
         
     # Configure LLM model
-    # CrewAI natively resolves gemini/gemini-1.5-flash when GEMINI_API_KEY is in environment
     llm_model = model_name
     
     # Format sensitivity results into a readable string
