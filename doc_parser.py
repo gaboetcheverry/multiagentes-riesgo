@@ -1,17 +1,18 @@
 import io
 import json
 import pandas as pd
-import fitz  # PyMuPDF
+import pypdf  # Pure Python PDF reader to prevent segmentation faults
 import docx  # python-docx
 import google.generativeai as genai
 
 def extract_text_from_pdf(file_bytes):
-    """Extracts all text from a PDF file using PyMuPDF."""
+    """Extracts all text from a PDF file using pypdf."""
     text = ""
-    # Open PDF from memory stream
-    doc = fitz.open(stream=file_bytes, filetype="pdf")
-    for page in doc:
-        text += page.get_text() + "\n"
+    reader = pypdf.PdfReader(io.BytesIO(file_bytes))
+    for page in reader.pages:
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
     return text
 
 def extract_text_from_docx(file_bytes):
