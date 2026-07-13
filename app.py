@@ -8,11 +8,23 @@ import numpy as np
 import plotly.express as px
 import plotly.graph_objects as go
 
+# Force stdout and stderr to UTF-8 to prevent encoding errors in restricted terminal environments
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8', errors='backslashreplace')
+    except Exception:
+        pass
+if hasattr(sys.stderr, 'reconfigure'):
+    try:
+        sys.stderr.reconfigure(encoding='utf-8', errors='backslashreplace')
+    except Exception:
+        pass
+
 # Import our custom modules
 from risk_engine import run_monte_carlo_salsa, run_monte_carlo_coffee, run_monte_carlo_brewery
 from agents_setup import run_strategic_crew
 from colab_generator import generate_colab_notebook
-from doc_parser import parse_business_file, extract_parameters_via_gemini
+from doc_parser import parse_business_file, extract_parameters_via_gemini, clean_to_ascii
 
 # Page configuration
 st.set_page_config(
@@ -488,7 +500,8 @@ with tab1:
         )
         
         if uploaded_file is not None:
-            if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != uploaded_file.name:
+            safe_filename = clean_to_ascii(uploaded_file.name)
+            if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != safe_filename:
                 active_key = openai_key if api_provider == "OpenAI" else api_key
                 provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
                 
@@ -500,12 +513,12 @@ with tab1:
                     )
                 else:
                     file_bytes = uploaded_file.read()
-                    with st.spinner(f"Analizando '{uploaded_file.name}' con {provider_name} AI y extrayendo variables..."):
+                    with st.spinner(f"Analizando '{safe_filename}' con {provider_name} AI y extrayendo variables..."):
                         try:
-                            doc_text = parse_business_file(file_bytes, uploaded_file.name)
+                            doc_text = parse_business_file(file_bytes, safe_filename)
                             # Clean the selected model name (strip "gemini/" prefix for google-generativeai SDK compatibility)
                             clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
-                            extracted = extract_parameters_via_gemini(doc_text, uploaded_file.name, active_key, model_name=clean_model_name)
+                            extracted = extract_parameters_via_gemini(doc_text, safe_filename, active_key, model_name=clean_model_name)
                             
                             # Update session state values
                             st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
