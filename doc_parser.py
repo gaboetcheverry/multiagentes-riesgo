@@ -61,7 +61,7 @@ def parse_business_file(file_bytes, filename):
         except Exception:
             raise ValueError(f"Extensión de archivo .{ext} no soportada.")
 
-def extract_parameters_via_gemini(document_text, filename, api_key):
+def extract_parameters_via_gemini(document_text, filename, api_key, model_name="gemini-1.5-flash"):
     """
     Calls the Gemini API to extract financial parameters from raw text.
     Ensures response conforms to a clean, flat JSON schema matching the simulation requirements.
@@ -88,7 +88,7 @@ def extract_parameters_via_gemini(document_text, filename, api_key):
     3. "baseline_revenue": Ingresos mensuales promedio base del negocio en condiciones normales. Debe ser un número float.
     4. "baseline_cogs": Costo mensual de ventas base (COGS) promedio del negocio. Debe ser un número float.
     5. "chile_share": Proporción de la materia prima/insumo crítico dentro del costo de ventas total (ej. 0.35 si representa el 35% del COGS). Debe ser un float entre 0.05 y 0.90.
-    6. "fixed_costs": Gastos fijos mensuales promedio (renta, nómina, etc.). Debe ser un número float.
+    6. "fixed_costs": Gastos fijos mensuales promedio (renta, nómina fija, servicios, seguros). Debe ser un número float.
     7. "chile_risk_prob": Probabilidad de que el precio del insumo crítico aumente bruscamente debido a factores de riesgo (clima, logística, aranceles) (ej. 0.30 para un 30% de probabilidad). Debe ser un float entre 0.0 y 1.0.
     8. "chile_risk_increase": Porcentaje estimado de aumento en el costo del insumo en caso de crisis (ej. 0.50 si sube un 50% de precio). Debe ser un float entre 0.0 y 2.0.
     9. "low_season_contraction_mean": Contracción promedio esperada de la demanda general en los 3 meses de temporada baja (ej. 0.20 para una reducción del 20% en ventas). Debe ser un float entre 0.0 y 1.0.
@@ -104,7 +104,8 @@ def extract_parameters_via_gemini(document_text, filename, api_key):
     Devuelve ÚNICAMENTE el objeto JSON plano solicitado. No agregues formatos de código como ```json ... ```, solo la cadena JSON limpia.
     """
     
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    # Use the passed model name
+    model = genai.GenerativeModel(model_name)
     
     # Request JSON response type natively
     response = model.generate_content(

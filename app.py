@@ -445,7 +445,9 @@ with tab1:
                     with st.spinner(f"Analizando '{uploaded_file.name}' con Gemini AI y extrayendo variables..."):
                         try:
                             doc_text = parse_business_file(file_bytes, uploaded_file.name)
-                            extracted = extract_parameters_via_gemini(doc_text, uploaded_file.name, api_key)
+                            # Clean the selected model name (strip "gemini/" prefix for google-generativeai SDK compatibility)
+                            clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
+                            extracted = extract_parameters_via_gemini(doc_text, uploaded_file.name, api_key, model_name=clean_model_name)
                             
                             # Update session state values
                             st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
