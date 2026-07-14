@@ -89,6 +89,9 @@ def extract_parameters_via_openai(document_text, filename, api_key, model_name="
     Calls the OpenAI API to extract financial parameters from raw text.
     Ensures response conforms to a clean, flat JSON schema matching the simulation requirements.
     """
+    if isinstance(api_key, str):
+        api_key = api_key.strip()
+
     import openai
     import json
     
@@ -149,6 +152,9 @@ def extract_parameters_via_openai(document_text, filename, api_key, model_name="
         return json.loads(cleaned_text)
 
 def extract_parameters_via_gemini(document_text, filename, api_key, model_name="gemini-1.5-flash"):
+    if isinstance(api_key, str):
+        api_key = api_key.strip()
+
     # Route to OpenAI if an OpenAI model is specified
     if model_name.startswith("gpt-") or model_name.startswith("o1-") or model_name.startswith("o3-"):
         return extract_parameters_via_openai(document_text, filename, api_key, model_name)

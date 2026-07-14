@@ -13,6 +13,12 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
     Configura y ejecuta los agentes de CrewAI para realizar el análisis de riesgo estratégico.
     Ingesta los resultados cuantitativos de la simulación de Monte Carlo.
     """
+    # Limpiar espacios en blanco de las claves si son cadenas
+    if isinstance(api_key, str):
+        api_key = api_key.strip()
+    if isinstance(openai_key, str):
+        openai_key = openai_key.strip()
+
     # Establecer claves en el entorno si se suministran
     if api_key:
         os.environ["GEMINI_API_KEY"] = api_key
