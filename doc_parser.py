@@ -1,12 +1,10 @@
 import io
 import json
 import pandas as pd
-import pypdf  # Pure Python PDF reader to prevent segmentation faults
-import docx  # python-docx
-import google.generativeai as genai
 
 def extract_text_from_pdf(file_bytes):
     """Extracts all text from a PDF file using pypdf."""
+    import pypdf  # Pure Python PDF reader to prevent segmentation faults
     text = ""
     reader = pypdf.PdfReader(io.BytesIO(file_bytes))
     for page in reader.pages:
@@ -17,6 +15,7 @@ def extract_text_from_pdf(file_bytes):
 
 def extract_text_from_docx(file_bytes):
     """Extracts all text from a Word (.docx) file using python-docx."""
+    import docx  # python-docx
     doc = docx.Document(io.BytesIO(file_bytes))
     paragraphs_text = [p.text for p in doc.paragraphs]
     
@@ -113,10 +112,10 @@ def extract_parameters_via_openai(document_text, filename, api_key, model_name="
     2. "scenario_description": Un resumen ejecutivo (max 300 caracteres) que describa de que trata la empresa, que insumo critico es el volatil y el contexto del mercado geografico o sectorial.
     3. "baseline_revenue": Ingresos mensuales promedio base del negocio en condiciones normales. Debe ser un numero float.
     4. "baseline_cogs": Costo mensual de ventas base (COGS) promedio del negocio. Debe ser un numero float.
-    5. "chile_share": Proporcion de la materia prima/insumo critico dentro del costo de ventas total (ej. 0.35 si representa el 35% del COGS). Debe ser un float entre 0.05 y 0.90.
+    5. "raw_material_share": Proporcion de la materia prima/insumo critico dentro del costo de ventas total (ej. 0.35 si representa el 35% del COGS). Debe ser un float entre 0.05 y 0.90.
     6. "fixed_costs": Gastos fijos mensuales promedio (renta, nomina fija, servicios, seguros). Debe ser un numero float.
-    7. "chile_risk_prob": Probabilidad de que el precio del insumo critico aumente bruscamente debido a factores de riesgo (clima, logistica, aranceles) (ej. 0.30 para un 30% de probabilidad). Debe ser un float entre 0.0 y 1.0.
-    8. "chile_risk_increase": Porcentaje estimado de aumento en el costo del insumo en caso de crisis (ej. 0.50 si sube un 50% de precio). Debe ser un float entre 0.0 y 2.0.
+    7. "raw_material_risk_prob": Probabilidad de que el precio del insumo critico aumente bruscamente debido a factores de riesgo (clima, logistica, aranceles) (ej. 0.30 para un 30% de probabilidad). Debe ser un float entre 0.0 y 1.0.
+    8. "raw_material_risk_increase": Porcentaje estimado de aumento en el costo del insumo en caso de crisis (ej. 0.50 si sube un 50% de precio). Debe ser un float entre 0.0 y 2.0.
     9. "low_season_contraction_mean": Contraccion promedio esperada de la demanda general en los 3 meses de temporada baja (ej. 0.20 para una reduccion del 20% en ventas). Debe ser un float entre 0.0 y 1.0.
     10. "low_season_contraction_std": Volatilidad o desviacion estandar de la contraccion de la demanda en temporada baja. Valor sugerido entre 0.02 y 0.15 (por defecto 0.05).
     11. "high_season_spike_mean": Repunte o incremento promedio esperado de la demanda en el mes de temporada alta (ej. 0.60 para un incremento de 60%). Debe ser un float entre 0.0 y 2.0.
@@ -158,6 +157,7 @@ def extract_parameters_via_gemini(document_text, filename, api_key, model_name="
     Calls the Gemini API to extract financial parameters from raw text.
     Ensures response conforms to a clean, flat JSON schema matching the simulation requirements.
     """
+    import google.generativeai as genai
     # Configure Gemini API
     genai.configure(api_key=api_key)
     
@@ -179,10 +179,10 @@ def extract_parameters_via_gemini(document_text, filename, api_key, model_name="
     2. "scenario_description": Un resumen ejecutivo (max 300 caracteres) que describa de que trata la empresa, que insumo critico es el volatil y el contexto del mercado geografico o sectorial.
     3. "baseline_revenue": Ingresos mensuales promedio base del negocio en condiciones normales. Debe ser un numero float.
     4. "baseline_cogs": Costo mensual de ventas base (COGS) promedio del negocio. Debe ser un numero float.
-    5. "chile_share": Proporcion de la materia prima/insumo critico dentro del costo de ventas total (ej. 0.35 si representa el 35% del COGS). Debe ser un float entre 0.05 y 0.90.
+    5. "raw_material_share": Proporcion de la materia prima/insumo critico dentro del costo de ventas total (ej. 0.35 si representa el 35% del COGS). Debe ser un float entre 0.05 y 0.90.
     6. "fixed_costs": Gastos fijos mensuales promedio (renta, nomina fija, servicios, seguros). Debe ser un numero float.
-    7. "chile_risk_prob": Probabilidad de que el precio del insumo critico aumente bruscamente debido a factores de riesgo (clima, logistica, aranceles) (ej. 0.30 para un 30% de probabilidad). Debe ser un float entre 0.0 y 1.0.
-    8. "chile_risk_increase": Porcentaje estimado de aumento en el costo del insumo en caso de crisis (ej. 0.50 si sube un 50% de precio). Debe ser un float entre 0.0 y 2.0.
+    7. "raw_material_risk_prob": Probabilidad de que el precio del insumo critico aumente bruscamente debido a factores de riesgo (clima, logistica, aranceles) (ej. 0.30 para un 30% de probabilidad). Debe ser un float entre 0.0 y 1.0.
+    8. "raw_material_risk_increase": Porcentaje estimado de aumento en el costo del insumo en caso de crisis (ej. 0.50 si sube un 50% de precio). Debe ser un float entre 0.0 y 2.0.
     9. "low_season_contraction_mean": Contraccion promedio esperada de la demanda general en los 3 meses de temporada baja (ej. 0.20 para una reduccion del 20% en ventas). Debe ser un float entre 0.0 y 1.0.
     10. "low_season_contraction_std": Volatilidad o desviacion estandar de la contraccion de la demanda en temporada baja. Valor sugerido entre 0.02 y 0.15 (por defecto 0.05).
     11. "high_season_spike_mean": Repunte o incremento promedio esperado de la demanda en el mes de temporada alta (ej. 0.60 para un incremento de 60%). Debe ser un float entre 0.0 y 2.0.

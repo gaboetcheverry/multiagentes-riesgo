@@ -2,24 +2,24 @@ import json
 
 def generate_colab_notebook(scenario_type, params):
     """
-    Generates a Jupyter Notebook (.ipynb) as a JSON-formatted string.
-    The notebook contains:
-      1. Dependency installation
-      2. Secure API key configuration
-      3. The Monte Carlo risk engine code (self-contained)
-      4. Plotly charting code
-      5. CrewAI agent configurations and execution
+    Genera un archivo Jupyter Notebook (.ipynb) como string formateado en JSON.
+    El cuaderno contiene:
+      1. Instalación de dependencias.
+      2. Configuración segura de la clave API de Gemini.
+      3. El motor de simulación de Monte Carlo genérico.
+      4. Código para graficar con Plotly.
+      5. Configuración y ejecución de los agentes de CrewAI.
     """
     
-    # 1. Title cell
-    title_md = f"""# Análisis de Riesgo y Decisiones bajo Incertidumbre: {params.get('scenario_title', 'Caso de Estudio')}
+    # 1. Celda de título
+    title_md = f"""# Análisis de Riesgo y Decisiones bajo Incertidumbre: {params.get('scenario_title', 'Caso de Estudio Personalizado')}
 Este cuaderno interactivo fue generado automáticamente y está listo para ejecutarse en **Google Colab**. 
 
 ### Metodología:
 1. **Simulación Cuantitativa de Monte Carlo (10,000 iteraciones)**: Evalúa el impacto de la volatilidad y riesgos concurrentes en los márgenes y utilidades del negocio, calculando métricas de riesgo financiero clave:
-   * **Value at Risk (VaR 95%)**: La pérdida máxima esperada con un 95% de nivel de confianza.
-   * **Conditional Value at Risk (CVaR 95%)**: El impacto promedio en el peor 5% de los escenarios.
-   * **Análisis de Sensibilidad**: Correlación entre variables de incertidumbre y ganancias.
+   * **Value at Risk (VaR 95%)**: El beneficio neto mínimo esperado con un 95% de nivel de confianza.
+   * **Conditional Value at Risk (CVaR 95%)**: El beneficio promedio en el peor 5% de los escenarios.
+   * **Análisis de Sensibilidad (Tornado)**: Correlación entre variables de incertidumbre y ganancias.
 2. **Planificación Estratégica Multiagente (CrewAI + Gemini)**: Un equipo de agentes de Inteligencia Artificial (Analista de Datos y Estratega de Negocios) interpreta los resultados y diseña planes de acción tácticos y de mitigación.
 
 ---
@@ -30,12 +30,12 @@ Este cuaderno interactivo fue generado automáticamente y está listo para ejecu
 4. Inicia la **Consulta Multiagente** para obtener tu reporte estratégico.
 """
 
-    # 2. Install dependencies cell
+    # 2. Celda para instalar dependencias
     install_code = """# Instalación de librerías necesarias en Google Colab
 !pip install -q crewai crewai-tools plotly numpy pandas
 print("¡Dependencias instaladas con éxito!")"""
 
-    # 3. Secure API key configuration
+    # 3. Configuración segura de la clave API
     api_key_code = """import os
 import getpass
 
@@ -45,17 +45,16 @@ if "GEMINI_API_KEY" not in os.environ:
     
 print("Clave de API configurada.")"""
 
-    # 4. Scenario parameters cell
-    params_code = f"# Parámetros del Escenario Seleccionado\n"
+    # 4. Celda de parámetros del escenario
+    params_code = f"# Parámetros del Escenario Personalizado\n"
     for k, v in params.items():
         if isinstance(v, str):
             params_code += f"{k} = '{v}'\n"
         else:
             params_code += f"{k} = {v}\n"
 
-    # 5. Core Simulation Engine code
-    if scenario_type == "salsa":
-        engine_code = """import numpy as np
+    # 5. Código del motor de simulación genérico
+    engine_code = """import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
@@ -63,10 +62,10 @@ import plotly.graph_objects as go
 def run_simulation(
     baseline_revenue,
     baseline_cogs,
-    chile_share,
+    raw_material_share,
     fixed_costs,
-    chile_risk_prob,
-    chile_risk_increase,
+    raw_material_risk_prob,
+    raw_material_risk_increase,
     low_season_contraction_mean,
     low_season_contraction_std,
     high_season_spike_mean,
@@ -80,16 +79,16 @@ def run_simulation(
     revenues = np.zeros(num_simulations)
     cogs_totals = np.zeros(num_simulations)
     
-    chile_factors = np.zeros(num_simulations)
+    raw_material_factors = np.zeros(num_simulations)
     low_season_demands = np.zeros(num_simulations)
     high_season_demands = np.zeros(num_simulations)
     
     for i in range(num_simulations):
-        is_chile_crisis = np.random.rand() < chile_risk_prob
-        chile_factor = 1.0 + chile_risk_increase if is_chile_crisis else 1.0
-        chile_factors[i] = chile_factor
+        is_crisis = np.random.rand() < raw_material_risk_prob
+        rm_factor = 1.0 + raw_material_risk_increase if is_crisis else 1.0
+        raw_material_factors[i] = rm_factor
         
-        effective_cogs_multiplier = (1.0 - chile_share) + (chile_share * chile_factor)
+        effective_cogs_multiplier = (1.0 - raw_material_share) + (raw_material_share * rm_factor)
         
         low_season_contraction = np.random.normal(low_season_contraction_mean, low_season_contraction_std)
         low_season_contraction = np.clip(low_season_contraction, 0.0, 1.0)
@@ -120,15 +119,15 @@ def run_simulation(
         'Profit': profits,
         'Revenue': revenues,
         'COGS': cogs_totals,
-        'Chile_Factor': chile_factors,
+        'Raw_Material_Factor': raw_material_factors,
         'Low_Season_Demand': low_season_demands,
         'High_Season_Demand': high_season_demands
     })
     
     sensitivity = {
-        'Chile Jalapeño Price Factor': df_sims['Chile_Factor'].corr(df_sims['Profit']),
-        'Low Season Demand Factor': df_sims['Low_Season_Demand'].corr(df_sims['Profit']),
-        'High Season Demand Factor': df_sims['High_Season_Demand'].corr(df_sims['Profit'])
+        'Factor de Costo de Insumo Crítico': df_sims['Raw_Material_Factor'].corr(df_sims['Profit']),
+        'Factor de Demanda en Temporada Baja': df_sims['Low_Season_Demand'].corr(df_sims['Profit']),
+        'Factor de Demanda en Temporada Alta': df_sims['High_Season_Demand'].corr(df_sims['Profit'])
     }
     
     metrics = {
@@ -141,236 +140,25 @@ def run_simulation(
         'prob_loss': float(np.mean(profits < 0.0) * 100),
         'mean_revenue': float(np.mean(revenues)),
         'mean_cogs': float(np.mean(cogs_totals)),
-        'expected_margin': float((np.mean(profits) / np.mean(revenues)) * 100)
-    }
-    
-    return df_sims, metrics, sensitivity
-"""
-    elif scenario_type == "coffee":
-        engine_code = """import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-
-def run_simulation(
-    baseline_revenue,
-    baseline_cogs,
-    fixed_costs,
-    exchange_rate_volatility,
-    coffee_drop_prob,
-    coffee_drop_pct,
-    logistics_hike_prob,
-    logistics_hike_pct,
-    num_simulations=10000,
-    seed=42
-):
-    np.random.seed(seed)
-    
-    profits = np.zeros(num_simulations)
-    revenues = np.zeros(num_simulations)
-    cogs_totals = np.zeros(num_simulations)
-    
-    fx_rates = np.zeros(num_simulations)
-    coffee_prices = np.zeros(num_simulations)
-    logistics_costs = np.zeros(num_simulations)
-    
-    for i in range(num_simulations):
-        fx_factor = np.random.normal(1.0, exchange_rate_volatility)
-        fx_rates[i] = fx_factor
-        
-        has_coffee_drop = np.random.rand() < coffee_drop_prob
-        coffee_factor = 1.0 - coffee_drop_pct if has_coffee_drop else 1.0
-        coffee_prices[i] = coffee_factor
-        
-        has_logistics_hike = np.random.rand() < logistics_hike_prob
-        logistics_factor = 1.0 + logistics_hike_pct if has_logistics_hike else 1.0
-        logistics_costs[i] = logistics_factor
-        
-        # 4 meses
-        rev_monthly = baseline_revenue * fx_factor * coffee_factor
-        cogs_monthly = baseline_cogs * logistics_factor
-        
-        total_rev = rev_monthly * 4
-        total_cogs = cogs_monthly * 4
-        total_fixed = fixed_costs * 4
-        
-        revenues[i] = total_rev
-        cogs_totals[i] = total_cogs
-        profits[i] = total_rev - total_cogs - total_fixed
-        
-    df_sims = pd.DataFrame({
-        'Profit': profits,
-        'Revenue': revenues,
-        'COGS': cogs_totals,
-        'FX_Factor': fx_rates,
-        'Coffee_Price_Factor': coffee_prices,
-        'Logistics_Factor': logistics_costs
-    })
-    
-    sensitivity = {
-        'Exchange Rate Factor (USD/MXN)': df_sims['FX_Factor'].corr(df_sims['Profit']),
-        'International Coffee Price Factor': df_sims['Coffee_Price_Factor'].corr(df_sims['Profit']),
-        'Logistics Cost Factor': df_sims['Logistics_Factor'].corr(df_sims['Profit'])
-    }
-    
-    metrics = {
-        'mean_profit': float(np.mean(profits)),
-        'median_profit': float(np.median(profits)),
-        'min_profit': float(np.min(profits)),
-        'max_profit': float(np.max(profits)),
-        'var_95': float(np.percentile(profits, 5)),
-        'cvar_95': float(np.mean(profits[profits <= np.percentile(profits, 5)])),
-        'prob_loss': float(np.mean(profits < 0.0) * 100),
-        'mean_revenue': float(np.mean(revenues)),
-        'mean_cogs': float(np.mean(cogs_totals)),
-        'expected_margin': float((np.mean(profits) / np.mean(revenues)) * 100)
-    }
-    
-    return df_sims, metrics, sensitivity
-"""
-    else: # brewery
-        engine_code = """import numpy as np
-import pandas as pd
-import plotly.express as px
-import plotly.graph_objects as go
-
-def run_simulation(
-    baseline_revenue,
-    baseline_cogs,
-    fixed_costs,
-    water_drought_prob,
-    water_cost_multiplier,
-    barley_hike_min,
-    barley_hike_max,
-    tourism_mean,
-    tourism_std,
-    num_simulations=10000,
-    seed=42
-):
-    np.random.seed(seed)
-    
-    profits = np.zeros(num_simulations)
-    revenues = np.zeros(num_simulations)
-    cogs_totals = np.zeros(num_simulations)
-    
-    water_factors = np.zeros(num_simulations)
-    barley_factors = np.zeros(num_simulations)
-    tourism_factors = np.zeros(num_simulations)
-    
-    water_share = 0.15
-    barley_share = 0.25
-    
-    for i in range(num_simulations):
-        has_drought = np.random.rand() < water_drought_prob
-        water_factor = water_cost_multiplier if has_drought else 1.0
-        water_factors[i] = water_factor
-        
-        barley_hike = np.random.triangular(barley_hike_min, (barley_hike_min + barley_hike_max)/2, barley_hike_max)
-        barley_factor = 1.0 + barley_hike
-        barley_factors[i] = barley_factor
-        
-        tourism_shift = np.random.normal(tourism_mean, tourism_std)
-        demand_factor = 1.0 + tourism_shift
-        tourism_factors[i] = demand_factor
-        
-        effective_cogs_multiplier = (1.0 - water_share - barley_share) + (water_share * water_factor) + (barley_share * barley_factor)
-        
-        rev_total = baseline_revenue * demand_factor * 4
-        cogs_total = baseline_cogs * effective_cogs_multiplier * demand_factor * 4
-        fixed_total = fixed_costs * 4
-        
-        revenues[i] = rev_total
-        cogs_totals[i] = cogs_total
-        profits[i] = rev_total - cogs_total - fixed_total
-        
-    df_sims = pd.DataFrame({
-        'Profit': profits,
-        'Revenue': revenues,
-        'COGS': cogs_totals,
-        'Water_Factor': water_factors,
-        'Barley_Factor': barley_factors,
-        'Tourism_Factor': tourism_factors
-    })
-    
-    sensitivity = {
-        'Water Cost Factor (Drought)': df_sims['Water_Factor'].corr(df_sims['Profit']),
-        'Barley Cost Factor': df_sims['Barley_Factor'].corr(df_sims['Profit']),
-        'Tourism Demand Factor': df_sims['Tourism_Factor'].corr(df_sims['Profit'])
-    }
-    
-    metrics = {
-        'mean_profit': float(np.mean(profits)),
-        'median_profit': float(np.median(profits)),
-        'min_profit': float(np.min(profits)),
-        'max_profit': float(np.max(profits)),
-        'var_95': float(np.percentile(profits, 5)),
-        'cvar_95': float(np.mean(profits[profits <= np.percentile(profits, 5)])),
-        'prob_loss': float(np.mean(profits < 0.0) * 100),
-        'mean_revenue': float(np.mean(revenues)),
-        'mean_cogs': float(np.mean(cogs_totals)),
-        'expected_margin': float((np.mean(profits) / np.mean(revenues)) * 100)
+        'expected_margin': float((np.mean(profits) / np.mean(revenues)) * 100 if np.mean(revenues) > 0 else 0)
     }
     
     return df_sims, metrics, sensitivity
 """
 
-    is_custom_scenario = (scenario_type == "salsa" and "Salsa" not in params.get('scenario_title', ''))
-
-    # 6. Run simulation call and plotting
-    if scenario_type == "salsa":
-        run_sim_call = """# Ejecutar simulación
+    # 6. Ejecución de simulación y gráficos
+    run_sim_call = """# Ejecutar simulación
 df_sims, metrics, sensitivity = run_simulation(
     baseline_revenue=baseline_revenue,
     baseline_cogs=baseline_cogs,
-    chile_share=chile_share,
+    raw_material_share=raw_material_share,
     fixed_costs=fixed_costs,
-    chile_risk_prob=chile_risk_prob,
-    chile_risk_increase=chile_risk_increase,
+    raw_material_risk_prob=raw_material_risk_prob,
+    raw_material_risk_increase=raw_material_risk_increase,
     low_season_contraction_mean=low_season_contraction_mean,
     low_season_contraction_std=low_season_contraction_std,
     high_season_spike_mean=high_season_spike_mean,
     high_season_spike_std=high_season_spike_std,
-    num_simulations=10000
-)"""
-        if is_custom_scenario:
-            run_sim_call += """
-
-# Renombrar variables para escenario personalizado (cualquier negocio)
-sensitivity = {
-    'Costo de Materia Prima Crítica': sensitivity['Chile Jalapeño Price Factor'],
-    'Contracción de Demanda': sensitivity['Low Season Demand Factor'],
-    'Expansión de Demanda': sensitivity['High Season Demand Factor']
-}
-df_sims = df_sims.rename(columns={
-    'Chile_Factor': 'Factor_Costo_Materia_Prima',
-    'Low_Season_Demand': 'Factor_Demanda_Baja',
-    'High_Season_Demand': 'Factor_Demanda_Alta'
-})"""
-    elif scenario_type == "coffee":
-        run_sim_call = """# Ejecutar simulación
-df_sims, metrics, sensitivity = run_simulation(
-    baseline_revenue=baseline_revenue,
-    baseline_cogs=baseline_cogs,
-    fixed_costs=fixed_costs,
-    exchange_rate_volatility=exchange_rate_volatility,
-    coffee_drop_prob=coffee_drop_prob,
-    coffee_drop_pct=coffee_drop_pct,
-    logistics_hike_prob=logistics_hike_prob,
-    logistics_hike_pct=logistics_hike_pct,
-    num_simulations=10000
-)"""
-    else: # brewery
-        run_sim_call = """# Ejecutar simulación
-df_sims, metrics, sensitivity = run_simulation(
-    baseline_revenue=baseline_revenue,
-    baseline_cogs=baseline_cogs,
-    fixed_costs=fixed_costs,
-    water_drought_prob=water_drought_prob,
-    water_cost_multiplier=water_cost_multiplier,
-    barley_hike_min=barley_hike_min,
-    barley_hike_max=barley_hike_max,
-    tourism_mean=tourism_mean,
-    tourism_std=tourism_std,
     num_simulations=10000
 )"""
 
@@ -410,12 +198,22 @@ fig_sens = px.bar(
 fig_sens.show()
 """
 
-    # 7. CrewAI agent code cell
+    # 7. Celda para CrewAI
     crewai_code = """import os
 from crewai import Agent, Task, Crew, Process
 
-# Asegurar que el LLM esté configurado
+try:
+    from crewai import LLM
+    has_llm = True
+except ImportError:
+    has_llm = False
+
+# Asegurar que el LLM esté configurado con la clave de Gemini
 llm_model = "gemini/gemini-1.5-flash"
+if has_llm:
+    llm_inst = LLM(model=llm_model, api_key=os.environ.get("GEMINI_API_KEY"))
+else:
+    llm_inst = llm_model
 
 # Formatear sensibilidades
 sens_lines = []
@@ -436,7 +234,7 @@ analista_datos = Agent(
     ),
     verbose=True,
     allow_delegation=False,
-    llm=llm_model
+    llm=llm_inst
 )
 
 # Definir Agente Estratega
@@ -450,7 +248,7 @@ estratega_negocios = Agent(
     ),
     verbose=True,
     allow_delegation=True,
-    llm=llm_model
+    llm=llm_inst
 )
 
 # Tarea de Análisis
@@ -513,7 +311,7 @@ print("## REPORTE ESTRATÉGICO MULTIAGENTE FINAL ##")
 print("#########################################\\n")
 print(resultado_final)"""
 
-    # Assemble the Jupyter Notebook JSON
+    # Ensamblar la estructura JSON del cuaderno Jupyter (.ipynb)
     notebook = {
         "cells": [
             {
@@ -571,7 +369,7 @@ print(resultado_final)"""
                 "metadata": {},
                 "source": [
                     "## Paso 4: Cargar Motor de Simulación\n",
-                    "Esta celda carga las funciones de simulación de Monte Carlo diseñadas específicamente para el tipo de escenario."
+                    "Esta celda carga las funciones de simulación de Monte Carlo genéricas."
                 ]
             },
             {

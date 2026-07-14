@@ -2,31 +2,43 @@ import os
 import sys
 from crewai import Agent, Task, Crew, Process
 
+try:
+    from crewai import LLM
+    has_llm_class = True
+except ImportError:
+    has_llm_class = False
+
 def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, sensitivity, model_name="gemini/gemini-1.5-flash", openai_key=None):
     """
-    Sets up and runs the CrewAI agents to perform strategic risk analysis.
-    Ingests the quantitative outputs from the Monte Carlo simulation.
+    Configura y ejecuta los agentes de CrewAI para realizar el análisis de riesgo estratégico.
+    Ingesta los resultados cuantitativos de la simulación de Monte Carlo.
     """
-    # Set the keys in the environment if provided
+    # Establecer claves en el entorno si se suministran
     if api_key:
         os.environ["GEMINI_API_KEY"] = api_key
     if openai_key:
         os.environ["OPENAI_API_KEY"] = openai_key
         
-    # Check if we are running an OpenAI model or Gemini model
+    # Verificar si es un modelo de OpenAI o de Gemini
     is_openai = (model_name.startswith("gpt-") or model_name.startswith("openai/") or model_name.startswith("o1-") or model_name.startswith("o3-"))
     
     if is_openai:
         if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"]:
-            raise ValueError("OpenAI API Key is not set. Please provide it in the sidebar or set the OPENAI_API_KEY environment variable.")
+            raise ValueError("La API Key de OpenAI no está configurada. Por favor, ingrésala en la barra lateral.")
     else:
         if "GEMINI_API_KEY" not in os.environ or not os.environ["GEMINI_API_KEY"]:
-            raise ValueError("Gemini API Key is not set. Please provide it in the sidebar or set the GEMINI_API_KEY environment variable.")
+            raise ValueError("La API Key de Gemini no está configurada. Por favor, ingrésala en la barra lateral.")
         
-    # Configure LLM model
-    llm_model = model_name
+    # Instanciar LLM de manera explícita para evitar fallbacks incorrectos
+    if has_llm_class:
+        if is_openai:
+            llm_inst = LLM(model=model_name, api_key=openai_key)
+        else:
+            llm_inst = LLM(model=model_name, api_key=api_key)
+    else:
+        llm_inst = model_name
     
-    # Format sensitivity results into a readable string
+    # Formatear resultados de sensibilidad en texto legible
     sens_lines = []
     for var, corr in sensitivity.items():
         impact = "Positivo" if corr > 0 else "Negativo"
@@ -34,7 +46,7 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         sens_lines.append(f"- **{var}**: Correlación de {corr:.2f} ({impact} {strength})")
     sens_str = "\n".join(sens_lines)
 
-    # 1. Agent definition
+    # 1. Definición de Agentes
     analista_datos = Agent(
         role='Analista Senior de Datos y Simulación de Riesgo',
         goal='Interpretar escenarios estadísticos e identificar las variables críticas de incertidumbre que afectan al negocio.',
@@ -46,7 +58,7 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         ),
         verbose=True,
         allow_delegation=False,
-        llm=llm_model
+        llm=llm_inst
     )
 
     estratega_negocios = Agent(
@@ -59,10 +71,10 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         ),
         verbose=True,
         allow_delegation=True,
-        llm=llm_model
+        llm=llm_inst
     )
 
-    # 2. Dynamic Task definition using simulation metrics
+    # 2. Definición de tareas dinámicas con métricas de simulación
     description_analisis = f"""
     Realiza un análisis profundo del escenario: **{scenario_name}**
     
@@ -107,7 +119,7 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         agent=estratega_negocios
     )
 
-    # 3. Crew instantiation
+    # 3. Instanciar la tripulación (Crew)
     equipo_consultoria = Crew(
         agents=[analista_datos, estratega_negocios],
         tasks=[tarea_analisis, tarea_estrategia],
@@ -115,7 +127,7 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         verbose=True
     )
 
-    # Execute the crew sequential process
+    # Ejecución
     resultado_final = equipo_consultoria.kickoff()
     
     return resultado_final

@@ -21,7 +21,7 @@ if hasattr(sys.stderr, 'reconfigure'):
         pass
 
 # Import our custom modules
-from risk_engine import run_monte_carlo_salsa, run_monte_carlo_coffee, run_monte_carlo_brewery
+from risk_engine import run_monte_carlo_generic
 from agents_setup import run_strategic_crew
 from colab_generator import generate_colab_notebook
 from doc_parser import parse_business_file, extract_parameters_via_gemini, clean_to_ascii
@@ -37,7 +37,7 @@ st.set_page_config(
 # Initialize session state keys for custom scenario if they don't exist
 defaults = {
     'custom_title': "Proyecto de Negocio Personalizado",
-    'custom_description': "Define aquí el contexto del negocio y los riesgos...",
+    'custom_description': "Define aquí el contexto del negocio, qué insumo o materia prima es volátil y los riesgos de estacionalidad...",
     'custom_revenue': 100000.0,
     'custom_cogs': 40000.0,
     'custom_share': 0.40,
@@ -143,10 +143,8 @@ class StreamlitRedirect:
         self.text = ""
         
     def write(self, text):
-        # Clean terminal color codes or escape sequences often sent by CrewAI / LiteLLM
         cleaned_text = text.replace('\x1b[1;30m', '').replace('\x1b[0m', '').replace('\x1b[1;32m', '').replace('\x1b[1;31m', '').replace('\x1b[32m', '').replace('\x1b[1;36m', '').replace('\x1b[92m', '').replace('\x1b[99m', '')
         self.text += cleaned_text
-        # Limit size to avoid browser crash
         if len(self.text) > 100000:
             self.text = self.text[-80000:]
         self.placeholder.code(self.text)
@@ -166,7 +164,6 @@ st.markdown("""
 # Sidebar Setup
 st.sidebar.markdown("### 🔑 Configuración del Entorno")
 
-# Retrieve keys from environment if present
 gemini_key_placeholder = os.environ.get("GEMINI_API_KEY", "")
 openai_key_placeholder = os.environ.get("OPENAI_API_KEY", "")
 
@@ -223,255 +220,77 @@ model_option = st.sidebar.selectbox(
     help="Modelo de Inteligencia Artificial a utilizar por los agentes y el parsing de archivos."
 )
 
+# Set the scenario choice permanently to Personalizado
+scenario_choice = "Personalizado"
+scenario_type = "generic"
+
 st.sidebar.markdown("---")
-st.sidebar.markdown("### 📁 Selección del Escenario")
-scenario_choice = st.sidebar.selectbox(
-    "Escenario de Negocio",
-    [
-        "Empresa de Salsas (Cancún)",
-        "Exportadora de Café (Veracruz)",
-        "Cervecería Artesanal (Baja California)",
-        "Personalizado (Definir variables)"
-    ]
-)
+st.sidebar.markdown("### 🎛️ Parámetros del Escenario")
 
-# ----------------- SCENARIO INITIALIZATION & INPUTS -----------------
+# UI controls directly bound to the custom parameters
+scenario_title = st.sidebar.text_input("Título del Escenario", value=st.session_state['custom_title'])
+scenario_description = st.sidebar.text_area("Descripción del Escenario", value=st.session_state['custom_description'])
 
-scenario_title = ""
-scenario_description = ""
-scenario_type = ""
+st.sidebar.markdown("#### 💰 Estructura Financiera Base")
+baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=st.session_state['custom_revenue'], step=1000.0)
+baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=st.session_state['custom_cogs'], step=1000.0)
+raw_material_share = st.sidebar.slider("Proporción de Insumo Crítico en COGS", 0.05, 0.90, value=st.session_state['custom_share'], step=0.05)
+fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=st.session_state['custom_fixed'], step=1000.0)
 
-# Keep track of active parameters to generate Colab notebooks
-colab_params = {}
+st.sidebar.markdown("#### ⚡ Factores de Volatilidad / Riesgo")
+raw_material_risk_prob = st.sidebar.slider("Probabilidad de Crisis de Insumo (0-1)", 0.0, 1.0, value=st.session_state['custom_risk_prob'], step=0.05)
+raw_material_risk_increase = st.sidebar.slider("Aumento del Insumo en Crisis (0-2)", 0.0, 2.0, value=st.session_state['custom_risk_increase'], step=0.05)
 
-if scenario_choice == "Empresa de Salsas (Cancún)":
-    scenario_type = "salsa"
-    scenario_title = "Empresa de Salsas - Cancún, Quintana Roo"
-    scenario_description = (
-        "Una PYME fabricante de salsas artesanales en Cancún enfrenta volatilidad en el costo del chile jalapeño "
-        "debido a factores climáticos extremos de fin de año (35% de probabilidad de desabasto o incremento del 45% en costos). "
-        "Paralelamente, el negocio opera bajo la estacionalidad del turismo en Quintana Roo, "
-        "con una contracción del 20% en la demanda local de restaurantes/hoteles en temporada baja (Septiembre - Noviembre) "
-        "y un repunte del 60% en la temporada alta de fin de año (Diciembre)."
-    )
-    
-    st.sidebar.markdown("### 🎛️ Parámetros del Escenario")
-    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=100000.0, step=1000.0)
-    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=40000.0, step=1000.0)
-    chile_share = st.sidebar.slider("Proporción de Chile Jalapeño en COGS", 0.05, 0.80, 0.30)
-    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=30000.0, step=1000.0)
-    
-    st.sidebar.markdown("#### Factores de Incertidumbre")
-    chile_risk_prob = st.sidebar.slider("Probabilidad de Crisis de Chile (0-1)", 0.0, 1.0, 0.35)
-    chile_risk_increase = st.sidebar.slider("Aumento del Chile en Crisis (0-2)", 0.0, 2.0, 0.45)
-    
-    low_season_contraction_mean = st.sidebar.slider("Contracción Media Temp. Baja (0-1)", 0.0, 1.0, 0.20)
-    low_season_contraction_std = st.sidebar.slider("Desv. Estándar Temp. Baja", 0.01, 0.20, 0.05)
-    
-    high_season_spike_mean = st.sidebar.slider("Aumento Medio Temp. Alta (0-2)", 0.0, 2.0, 0.60)
-    high_season_spike_std = st.sidebar.slider("Desv. Estándar Temp. Alta", 0.01, 0.30, 0.10)
-    
-    simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
-    
-    # Save variables for simulation run
-    sim_args = {
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'chile_share': chile_share,
-        'fixed_costs': fixed_costs,
-        'chile_risk_prob': chile_risk_prob,
-        'chile_risk_increase': chile_risk_increase,
-        'low_season_contraction_mean': low_season_contraction_mean,
-        'low_season_contraction_std': low_season_contraction_std,
-        'high_season_spike_mean': high_season_spike_mean,
-        'high_season_spike_std': high_season_spike_std,
-        'num_simulations': simulations
-    }
-    
-    colab_params = {
-        'scenario_title': scenario_title,
-        'scenario_description': scenario_description,
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'chile_share': chile_share,
-        'fixed_costs': fixed_costs,
-        'chile_risk_prob': chile_risk_prob,
-        'chile_risk_increase': chile_risk_increase,
-        'low_season_contraction_mean': low_season_contraction_mean,
-        'low_season_contraction_std': low_season_contraction_std,
-        'high_season_spike_mean': high_season_spike_mean,
-        'high_season_spike_std': high_season_spike_std
-    }
+low_season_contraction_mean = st.sidebar.slider("Contracción Media Temp. Baja (0-1)", 0.0, 1.0, value=st.session_state['custom_low_contraction'], step=0.05)
+low_season_contraction_std = st.sidebar.slider("Desv. Estándar Temp. Baja", 0.01, 0.20, value=st.session_state['custom_low_std'], step=0.01)
 
-elif scenario_choice == "Exportadora de Café (Veracruz)":
-    scenario_type = "coffee"
-    scenario_title = "Exportadora de Café Orgánico - Veracruz"
-    scenario_description = (
-        "Una cooperativa de Veracruz exporta café gourmet a Estados Unidos y Europa. "
-        "Su facturación está nominada en USD, por lo que la volatilidad cambiaria representa un riesgo de flujo (SD del 8% cambiario). "
-        "Asimismo, existe un riesgo del 40% de que una sobreoferta en Brasil o Vietnam cause una caída del 25% en los precios internacionales del café. "
-        "Finalmente, los costos logísticos internacionales de fletes marítimos tienen un 15% de probabilidad de incrementarse un 30%."
-    )
-    
-    st.sidebar.markdown("### 🎛️ Parámetros del Escenario")
-    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=150000.0, step=1000.0)
-    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=70000.0, step=1000.0)
-    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=40000.0, step=1000.0)
-    
-    st.sidebar.markdown("#### Factores de Incertidumbre")
-    exchange_rate_volatility = st.sidebar.slider("Volatilidad de Tipo de Cambio (SD %)", 0.01, 0.25, 0.08)
-    coffee_drop_prob = st.sidebar.slider("Probabilidad Caída de Precio Café (0-1)", 0.0, 1.0, 0.40)
-    coffee_drop_pct = st.sidebar.slider("Magnitud de Caída del Café (0-1)", 0.0, 0.60, 0.25)
-    logistics_hike_prob = st.sidebar.slider("Probabilidad de Crisis Logística (0-1)", 0.0, 1.0, 0.15)
-    logistics_hike_pct = st.sidebar.slider("Aumento del Flete en Crisis (0-1)", 0.0, 1.0, 0.30)
-    
-    simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
-    
-    sim_args = {
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'fixed_costs': fixed_costs,
-        'exchange_rate_volatility': exchange_rate_volatility,
-        'coffee_drop_prob': coffee_drop_prob,
-        'coffee_drop_pct': coffee_drop_pct,
-        'logistics_hike_prob': logistics_hike_prob,
-        'logistics_hike_pct': logistics_hike_pct,
-        'num_simulations': simulations
-    }
-    
-    colab_params = {
-        'scenario_title': scenario_title,
-        'scenario_description': scenario_description,
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'fixed_costs': fixed_costs,
-        'exchange_rate_volatility': exchange_rate_volatility,
-        'coffee_drop_prob': coffee_drop_prob,
-        'coffee_drop_pct': coffee_drop_pct,
-        'logistics_hike_prob': logistics_hike_prob,
-        'logistics_hike_pct': logistics_hike_pct
-    }
+high_season_spike_mean = st.sidebar.slider("Aumento Medio Temp. Alta (0-2)", 0.0, 2.0, value=st.session_state['custom_high_spike'], step=0.05)
+high_season_spike_std = st.sidebar.slider("Desv. Estándar Temp. Alta", 0.01, 0.30, value=st.session_state['custom_high_std'], step=0.01)
 
-elif scenario_choice == "Cervecería Artesanal (Baja California)":
-    scenario_type = "brewery"
-    scenario_title = "Cervecería Artesanal Costera - Baja California"
-    scenario_description = (
-        "Una cervecería artesanal de Ensenada, Baja California, comercializa sus cervezas a nivel regional. "
-        "El negocio sufre de escasez de agua, con un 20% de probabilidad de tener que comprar camiones cisterna que "
-        "triplican el costo de su agua. Por otra parte, las tarifas y costos de la malta importada fluctúan entre "
-        "un 10% y 30% adicionales (distribución triangular). Además, la demanda turística local (que representa un 40% de las ventas) "
-        "tiene una variación normal con un crecimiento medio del 10% y una desviación estándar del 15%."
-    )
-    
-    st.sidebar.markdown("### 🎛️ Parámetros del Escenario")
-    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=80000.0, step=1000.0)
-    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=30000.0, step=1000.0)
-    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=25000.0, step=1000.0)
-    
-    st.sidebar.markdown("#### Factores de Incertidumbre")
-    water_drought_prob = st.sidebar.slider("Probabilidad de Sequía (Agua cara)", 0.0, 1.0, 0.20)
-    water_cost_multiplier = st.sidebar.slider("Multiplicador Costo de Agua", 1.5, 5.0, 3.0)
-    barley_hike_min = st.sidebar.slider("Aumento Mínimo Malta Importada", 0.0, 0.30, 0.10)
-    barley_hike_max = st.sidebar.slider("Aumento Máximo Malta Importada", 0.15, 0.60, 0.30)
-    
-    tourism_mean = st.sidebar.slider("Crecimiento Medio Demanda Turística", -0.20, 0.50, 0.10)
-    tourism_std = st.sidebar.slider("Volatilidad de la Demanda Turística (SD)", 0.01, 0.30, 0.15)
-    
-    simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
-    
-    sim_args = {
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'fixed_costs': fixed_costs,
-        'water_drought_prob': water_drought_prob,
-        'water_cost_multiplier': water_cost_multiplier,
-        'barley_hike_min': barley_hike_min,
-        'barley_hike_max': barley_hike_max,
-        'tourism_mean': tourism_mean,
-        'tourism_std': tourism_std,
-        'num_simulations': simulations
-    }
-    
-    colab_params = {
-        'scenario_title': scenario_title,
-        'scenario_description': scenario_description,
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'fixed_costs': fixed_costs,
-        'water_drought_prob': water_drought_prob,
-        'water_cost_multiplier': water_cost_multiplier,
-        'barley_hike_min': barley_hike_min,
-        'barley_hike_max': barley_hike_max,
-        'tourism_mean': tourism_mean,
-        'tourism_std': tourism_std
-    }
+simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
 
-else: # Personalizado
-    scenario_type = "salsa" # Use the salsa structure as template for customizable general inputs
-    scenario_title = st.sidebar.text_input("Título del Escenario", value=st.session_state['custom_title'])
-    scenario_description = st.sidebar.text_area("Descripción del Escenario", value=st.session_state['custom_description'])
-    
-    st.sidebar.markdown("### 🎛️ Parámetros Financieros Base")
-    baseline_revenue = st.sidebar.number_input("Ingresos Mensuales Base ($)", value=st.session_state['custom_revenue'], step=1000.0)
-    baseline_cogs = st.sidebar.number_input("Costo de Ventas Base (COGS) ($)", value=st.session_state['custom_cogs'], step=1000.0)
-    chile_share = st.sidebar.slider("Proporción de Materia Prima Crítica en COGS", 0.05, 0.90, value=st.session_state['custom_share'], step=0.05)
-    fixed_costs = st.sidebar.number_input("Costos Fijos Mensuales ($)", value=st.session_state['custom_fixed'], step=1000.0)
-    
-    st.sidebar.markdown("#### Factores de Incertidumbre")
-    chile_risk_prob = st.sidebar.slider("Probabilidad de Crisis en Materia Prima (0-1)", 0.0, 1.0, value=st.session_state['custom_risk_prob'], step=0.05)
-    chile_risk_increase = st.sidebar.slider("Aumento en Crisis (0-2)", 0.0, 2.0, value=st.session_state['custom_risk_increase'], step=0.05)
-    
-    low_season_contraction_mean = st.sidebar.slider("Contracción Media Demanda (0-1)", 0.0, 1.0, value=st.session_state['custom_low_contraction'], step=0.05)
-    low_season_contraction_std = st.sidebar.slider("Desv. Estándar Contracción", 0.01, 0.20, value=st.session_state['custom_low_std'], step=0.01)
-    
-    high_season_spike_mean = st.sidebar.slider("Expansión Media Demanda (0-2)", 0.0, 2.0, value=st.session_state['custom_high_spike'], step=0.05)
-    high_season_spike_std = st.sidebar.slider("Desv. Estándar Expansión", 0.01, 0.30, value=st.session_state['custom_high_std'], step=0.01)
-    
-    # Sync back to session state so that changes are preserved and programmatically updatable
-    st.session_state['custom_title'] = scenario_title
-    st.session_state['custom_description'] = scenario_description
-    st.session_state['custom_revenue'] = baseline_revenue
-    st.session_state['custom_cogs'] = baseline_cogs
-    st.session_state['custom_share'] = chile_share
-    st.session_state['custom_fixed'] = fixed_costs
-    st.session_state['custom_risk_prob'] = chile_risk_prob
-    st.session_state['custom_risk_increase'] = chile_risk_increase
-    st.session_state['custom_low_contraction'] = low_season_contraction_mean
-    st.session_state['custom_low_std'] = low_season_contraction_std
-    st.session_state['custom_high_spike'] = high_season_spike_mean
-    st.session_state['custom_high_std'] = high_season_spike_std
-    
-    simulations = st.sidebar.slider("Iteraciones Monte Carlo", 500, 15000, 10000, step=500)
-    
-    sim_args = {
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'chile_share': chile_share,
-        'fixed_costs': fixed_costs,
-        'chile_risk_prob': chile_risk_prob,
-        'chile_risk_increase': chile_risk_increase,
-        'low_season_contraction_mean': low_season_contraction_mean,
-        'low_season_contraction_std': low_season_contraction_std,
-        'high_season_spike_mean': high_season_spike_mean,
-        'high_season_spike_std': high_season_spike_std,
-        'num_simulations': simulations
-    }
-    
-    colab_params = {
-        'scenario_title': scenario_title,
-        'scenario_description': scenario_description,
-        'baseline_revenue': baseline_revenue,
-        'baseline_cogs': baseline_cogs,
-        'chile_share': chile_share,
-        'fixed_costs': fixed_costs,
-        'chile_risk_prob': chile_risk_prob,
-        'chile_risk_increase': chile_risk_increase,
-        'low_season_contraction_mean': low_season_contraction_mean,
-        'low_season_contraction_std': low_season_contraction_std,
-        'high_season_spike_mean': high_season_spike_mean,
-        'high_season_spike_std': high_season_spike_std
-    }
+# Sync UI changes back to session state to make it sticky
+st.session_state['custom_title'] = scenario_title
+st.session_state['custom_description'] = scenario_description
+st.session_state['custom_revenue'] = baseline_revenue
+st.session_state['custom_cogs'] = baseline_cogs
+st.session_state['custom_share'] = raw_material_share
+st.session_state['custom_fixed'] = fixed_costs
+st.session_state['custom_risk_prob'] = raw_material_risk_prob
+st.session_state['custom_risk_increase'] = raw_material_risk_increase
+st.session_state['custom_low_contraction'] = low_season_contraction_mean
+st.session_state['custom_low_std'] = low_season_contraction_std
+st.session_state['custom_high_spike'] = high_season_spike_mean
+st.session_state['custom_high_std'] = high_season_spike_std
 
+sim_args = {
+    'baseline_revenue': baseline_revenue,
+    'baseline_cogs': baseline_cogs,
+    'raw_material_share': raw_material_share,
+    'fixed_costs': fixed_costs,
+    'raw_material_risk_prob': raw_material_risk_prob,
+    'raw_material_risk_increase': raw_material_risk_increase,
+    'low_season_contraction_mean': low_season_contraction_mean,
+    'low_season_contraction_std': low_season_contraction_std,
+    'high_season_spike_mean': high_season_spike_mean,
+    'high_season_spike_std': high_season_spike_std,
+    'num_simulations': simulations
+}
+
+colab_params = {
+    'scenario_title': scenario_title,
+    'scenario_description': scenario_description,
+    'baseline_revenue': baseline_revenue,
+    'baseline_cogs': baseline_cogs,
+    'raw_material_share': raw_material_share,
+    'fixed_costs': fixed_costs,
+    'raw_material_risk_prob': raw_material_risk_prob,
+    'raw_material_risk_increase': raw_material_risk_increase,
+    'low_season_contraction_mean': low_season_contraction_mean,
+    'low_season_contraction_std': low_season_contraction_std,
+    'high_season_spike_mean': high_season_spike_mean,
+    'high_season_spike_std': high_season_spike_std
+}
 
 # ----------------- TABS LAYOUT -----------------
 
@@ -486,59 +305,63 @@ with tab1:
     st.markdown(f"### 📋 Contexto Estratégico: {scenario_title}")
     st.info(scenario_description)
     
-    if scenario_choice == "Personalizado (Definir variables)":
-        st.markdown("### 📥 Cargar Insumos de Caso Real")
-        st.write(
-            "Sube un archivo con los datos financieros o descripción del negocio (formatos soportados: **CSV, Excel, PDF, Word**). "
-            "Si ingresaste tu Gemini API Key en la barra lateral, utilizaremos inteligencia artificial para analizar el documento y rellenar automáticamente los parámetros de simulación."
-        )
-        
-        uploaded_file = st.file_uploader(
-            "Cargar archivo de insumo (máx. 5MB)", 
-            type=["csv", "xlsx", "xls", "pdf", "docx", "doc"],
-            key="uploaded_business_file"
-        )
-        
-        if uploaded_file is not None:
-            safe_filename = clean_to_ascii(uploaded_file.name)
-            if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != safe_filename:
-                active_key = openai_key if api_provider == "OpenAI" else api_key
-                provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
-                
-                if not active_key:
-                    st.warning(
-                        f"⚠️ Has subido un archivo, pero no has configurado tu **{provider_name} API Key** en la barra lateral. "
-                        f"Ingresa la clave para que {provider_name} pueda analizar el archivo y rellenar el formulario de forma automática. "
-                        "De lo contrario, puedes rellenar los datos manualmente en la barra lateral."
-                    )
-                else:
-                    file_bytes = uploaded_file.read()
-                    with st.spinner(f"Analizando '{safe_filename}' con {provider_name} AI y extrayendo variables..."):
-                        try:
-                            doc_text = parse_business_file(file_bytes, safe_filename)
-                            # Clean the selected model name (strip "gemini/" prefix for google-generativeai SDK compatibility)
-                            clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
-                            extracted = extract_parameters_via_gemini(doc_text, safe_filename, active_key, model_name=clean_model_name)
+    st.markdown("### 📥 Cargar Insumos de Caso Real")
+    st.write(
+        "Sube un archivo con los datos financieros o descripción del negocio (formatos soportados: **CSV, Excel, PDF, Word**). "
+        "Si ingresaste tu API Key en la barra lateral, utilizaremos inteligencia artificial para analizar el documento y rellenar automáticamente los parámetros de simulación."
+    )
+    
+    uploaded_file = st.file_uploader(
+        "Cargar archivo de insumo (máx. 5MB)", 
+        type=["csv", "xlsx", "xls", "pdf", "docx", "doc"],
+        key="uploaded_business_file"
+    )
+    
+    if uploaded_file is not None:
+        safe_filename = clean_to_ascii(uploaded_file.name)
+        if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != safe_filename:
+            active_key = openai_key if api_provider == "OpenAI" else api_key
+            provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
+            
+            if not active_key:
+                st.warning(
+                    f"⚠️ Has subido un archivo, pero no has configurado tu **{provider_name} API Key** en la barra lateral. "
+                    f"Ingresa la clave para que {provider_name} pueda analizar el archivo y rellenar el formulario de forma automática. "
+                    "De lo contrario, puedes rellenar los datos manualmente en la barra lateral."
+                )
+            else:
+                file_bytes = uploaded_file.read()
+                with st.spinner(f"Analizando '{safe_filename}' con {provider_name} AI y extrayendo variables..."):
+                    try:
+                        doc_text = parse_business_file(file_bytes, safe_filename)
+                        clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
+                        extracted = extract_parameters_via_gemini(doc_text, safe_filename, active_key, model_name=clean_model_name)
+                        
+                        # Update session state values
+                        st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
+                        st.session_state['custom_description'] = str(extracted.get('scenario_description', ''))
+                        st.session_state['custom_revenue'] = float(extracted.get('baseline_revenue', 100000.0))
+                        st.session_state['custom_cogs'] = float(extracted.get('baseline_cogs', 40000.0))
+                        st.session_state['custom_share'] = float(extracted.get('raw_material_share', 0.40))
+                        st.session_state['custom_fixed'] = float(extracted.get('fixed_costs', 30000.0))
+                        st.session_state['custom_risk_prob'] = float(extracted.get('raw_material_risk_prob', 0.30))
+                        st.session_state['custom_risk_increase'] = float(extracted.get('raw_material_risk_increase', 0.50))
+                        st.session_state['custom_low_contraction'] = float(extracted.get('low_season_contraction_mean', 0.15))
+                        st.session_state['custom_low_std'] = float(extracted.get('low_season_contraction_std', 0.05))
+                        st.session_state['custom_high_spike'] = float(extracted.get('high_season_spike_mean', 0.40))
+                        st.session_state['custom_high_std'] = float(extracted.get('high_season_spike_std', 0.10))
+                        
+                        # Clear old crew report if parameters changed from a newly loaded document
+                        if 'crew_report' in st.session_state:
+                            del st.session_state['crew_report']
+                        if 'sim_data' in st.session_state:
+                            del st.session_state['sim_data']
                             
-                            # Update session state values
-                            st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
-                            st.session_state['custom_description'] = str(extracted.get('scenario_description', ''))
-                            st.session_state['custom_revenue'] = float(extracted.get('baseline_revenue', 100000.0))
-                            st.session_state['custom_cogs'] = float(extracted.get('baseline_cogs', 40000.0))
-                            st.session_state['custom_share'] = float(extracted.get('chile_share', 0.40))
-                            st.session_state['custom_fixed'] = float(extracted.get('fixed_costs', 30000.0))
-                            st.session_state['custom_risk_prob'] = float(extracted.get('chile_risk_prob', 0.30))
-                            st.session_state['custom_risk_increase'] = float(extracted.get('chile_risk_increase', 0.50))
-                            st.session_state['custom_low_contraction'] = float(extracted.get('low_season_contraction_mean', 0.15))
-                            st.session_state['custom_low_std'] = float(extracted.get('low_season_contraction_std', 0.05))
-                            st.session_state['custom_high_spike'] = float(extracted.get('high_season_spike_mean', 0.40))
-                            st.session_state['custom_high_std'] = float(extracted.get('high_season_spike_std', 0.10))
-                            
-                            st.session_state['last_uploaded_filename'] = uploaded_file.name
-                            st.success(f"¡Datos del caso '{st.session_state['custom_title']}' extraídos con éxito! Revisa los parámetros en el panel izquierdo.")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"Error al analizar el archivo: {str(e)}")
+                        st.session_state['last_uploaded_filename'] = uploaded_file.name
+                        st.success(f"¡Datos del caso '{st.session_state['custom_title']}' extraídos con éxito! Revisa los parámetros en el panel izquierdo.")
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error al analizar el archivo: {str(e)}")
     
     st.markdown("#### Entendiendo el Riesgo y la Incertidumbre en los Negocios")
     st.write(
@@ -561,6 +384,7 @@ with tab1:
         E --> F[Analista de Riesgos detecta Puntos de Quiebre]
         F --> G[Agente Estratega diseña Plan de Mitigación Táctico]
         G --> H[Reporte Estratégico Multiagente Final]
+        H -.-> I[Exportar a Google Colab]
     ```
     """)
 
@@ -573,27 +397,13 @@ with tab2:
     )
     
     if st.button("🎲 Ejecutar Simulación Monte Carlo", type="primary", use_container_width=True):
-        with st.spinner("Ejecutando 10,000 iteraciones financieras estocásticas..."):
-            # Execute corresponding simulation engine
-            if scenario_type == "salsa":
-                df_sims, metrics, sensitivity = run_monte_carlo_salsa(**sim_args)
-                if scenario_choice == "Personalizado (Definir variables)":
-                    # Rename variables to generic business ones
-                    sensitivity = {
-                        'Costo de Materia Prima Crítica': sensitivity['Chile Jalapeño Price Factor'],
-                        'Contracción de Demanda': sensitivity['Low Season Demand Factor'],
-                        'Expansión de Demanda': sensitivity['High Season Demand Factor']
-                    }
-                    df_sims = df_sims.rename(columns={
-                        'Chile_Factor': 'Factor_Costo_Materia_Prima',
-                        'Low_Season_Demand': 'Factor_Demanda_Baja',
-                        'High_Season_Demand': 'Factor_Demanda_Alta'
-                    })
-            elif scenario_type == "coffee":
-                df_sims, metrics, sensitivity = run_monte_carlo_coffee(**sim_args)
-            else:
-                df_sims, metrics, sensitivity = run_monte_carlo_brewery(**sim_args)
-                
+        # Clear old crew report on a new simulation run
+        if 'crew_report' in st.session_state:
+            del st.session_state['crew_report']
+            
+        with st.spinner("Ejecutando iteraciones financieras estocásticas..."):
+            df_sims, metrics, sensitivity = run_monte_carlo_generic(**sim_args)
+            
             # Store in session state for other tabs
             st.session_state['sim_data'] = {
                 'df_sims': df_sims,
@@ -611,7 +421,6 @@ with tab2:
         sensitivity = sd['sensitivity']
         
         # Display Premium Metrics Row
-        # VaR and CVaR formatting color
         var_color = "positive" if metrics['var_95'] >= 0 else "negative"
         cvar_color = "positive" if metrics['cvar_95'] >= 0 else "negative"
         loss_color = "negative" if metrics['prob_loss'] > 5 else "positive"
@@ -619,7 +428,7 @@ with tab2:
         st.markdown(f"""
         <div class="metric-container">
             <div class="metric-box">
-                <div class="metric-box-title">Beneficio Neto Promedio</div>
+                <div class="metric-box-title">Beneficio Neto Promedio del Período</div>
                 <div class="metric-box-value neutral">${metrics['mean_profit']:,.2f} MXN</div>
             </div>
             <div class="metric-box">
@@ -645,7 +454,6 @@ with tab2:
         </div>
         """, unsafe_allow_html=True)
         
-        # Explain VaR / CVaR
         with st.expander("📚 ¿Qué significan el VaR y el CVaR en mi negocio?"):
             st.markdown("""
             * **Value at Risk (VaR 95%)**: Es una medida estadística que cuantifica el riesgo financiero. Nos dice que, con un **95% de confianza**, las ganancias de la empresa no caerán por debajo de esta cifra durante el período analizado. Si el VaR es negativo (ej. -$5,000), significa que hay un 5% de probabilidad de tener pérdidas de $5,000 o más.
@@ -662,7 +470,6 @@ with tab2:
                 labels={'Profit': 'Ganancia Neta ($ MXN)'},
                 color_discrete_sequence=['#4F46E5']
             )
-            # Add metric indicators
             fig_hist.add_vline(x=0, line_dash="dash", line_color="#EF4444", annotation_text="Equilibrio (0)", annotation_position="top left")
             fig_hist.add_vline(x=metrics['var_95'], line_dash="solid", line_color="#F59E0B", annotation_text=f"VaR 95% (${metrics['var_95']:,.0f})", annotation_position="top left")
             
@@ -680,7 +487,6 @@ with tab2:
         with col_chart2:
             st.markdown("#### Análisis de Sensibilidad (Tornado)")
             
-            # Format sensitivity data
             sens_df = pd.DataFrame(list(sensitivity.items()), columns=['Variable', 'Correlación'])
             sens_df = sens_df.sort_values(by='Correlación', key=abs, ascending=True)
             
@@ -703,19 +509,16 @@ with tab2:
             
         # Summary dataframe
         with st.expander("🔍 Ver tabla resumida de datos simulados (Muestra de 10 ejecuciones)"):
-            # Dynamically build formatting dictionary based on existing columns in df_sims
             format_dict = {
                 'Profit': '${:,.2f} MXN',
                 'Revenue': '${:,.2f} MXN',
                 'COGS': '${:,.2f} MXN'
             }
             for col in df_sims.columns:
-                if col in ['Chile_Factor', 'Coffee_Price_Factor', 'Logistics_Factor', 'Water_Factor', 'Barley_Factor', 'Factor_Costo_Materia_Prima']:
+                if col in ['Raw_Material_Factor']:
                     format_dict[col] = '{:.2f}x'
-                elif col in ['Low_Season_Demand', 'High_Season_Demand', 'Tourism_Factor', 'Factor_Demanda_Baja', 'Factor_Demanda_Alta']:
+                elif col in ['Low_Season_Demand', 'High_Season_Demand']:
                     format_dict[col] = '{:.2%}'
-                elif col in ['FX_Factor']:
-                    format_dict[col] = '{:.3f}'
                     
             st.dataframe(df_sims.head(10).style.format(format_dict, na_rep="-"))
             
@@ -726,13 +529,12 @@ with tab3:
     st.markdown("### 🤖 Consulta Estratégica Multiagente (CrewAI)")
     st.write(
         "Este módulo utiliza a tus agentes consultores (`Analista de Datos` y `Estratega Comercial`) "
-        "para examinar los números de la simulación de Monte Carlo e idear el plan de mitigación en Quintana Roo u otra región aplicable."
+        "para examinar los números de la simulación de Monte Carlo e idear el plan de mitigación personalizado."
     )
     
     if 'sim_data' not in st.session_state:
         st.warning("Primero debes correr la simulación en la pestaña anterior para poder analizarla con los agentes.")
     else:
-        # Check active provider key
         active_key = openai_key if api_provider == "OpenAI" else api_key
         provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
         
@@ -740,21 +542,17 @@ with tab3:
             st.error(f"⚠️ Falta la API Key de {provider_name}. Por favor, ingrésala en la barra lateral para poder ejecutar los agentes.")
         else:
             if st.button("🤖 Iniciar Ejecución del Equipo de Agentes", type="primary", use_container_width=True):
-                # We have simulation data and API Key
                 sd = st.session_state['sim_data']
                 
-                # Terminal output redirection area
                 st.markdown("#### 📺 Consola de Razonamiento de Agentes (Live Log)")
                 log_placeholder = st.empty()
                 log_placeholder.code("Inicializando el entorno de agentes CrewAI...")
                 
-                # Setup capturing of stdout
                 stdout_redirect = StreamlitRedirect(log_placeholder)
                 old_stdout = sys.stdout
                 sys.stdout = stdout_redirect
                 
                 try:
-                    # Run the crew
                     report_result = run_strategic_crew(
                         api_key=api_key,
                         openai_key=openai_key,
@@ -765,10 +563,8 @@ with tab3:
                         model_name=model_option
                     )
                     
-                    # Restore stdout
                     sys.stdout = old_stdout
                     
-                    # Store report in session
                     st.session_state['crew_report'] = report_result
                     st.success("¡Análisis estratégico completado!")
                 except Exception as e:
@@ -781,15 +577,13 @@ with tab3:
                 st.markdown("---")
                 st.markdown("### 📋 REPORTE ESTRATÉGICO MULTIAGENTE FINAL")
                 
-                # Format output
                 report_content = str(st.session_state['crew_report'])
                 st.markdown(report_content)
                 
-                # Button to download markdown report
                 st.download_button(
                     label="💾 Descargar Reporte en Markdown",
                     data=report_content,
-                    file_name=f"reporte_estrategico_{scenario_choice.lower().replace(' ', '_')}.md",
+                    file_name=f"reporte_estrategico_{scenario_title.lower().replace(' ', '_')}.md",
                     mime="text/markdown"
                 )
 
@@ -808,17 +602,15 @@ with tab4:
     4. Sigue los comentarios del cuaderno para ejecutar las simulaciones y lanzar los agentes CrewAI en la nube de Google.
     """)
     
-    # Check if we have colab params
     if not colab_params:
         st.info("Configura un escenario en la barra lateral para habilitar la descarga del cuaderno de Colab.")
     else:
-        # Generate ipynb string
         notebook_json = generate_colab_notebook(scenario_type, colab_params)
         
         st.download_button(
             label="📥 Descargar Cuaderno Jupyter (.ipynb) Personalizado",
             data=notebook_json,
-            file_name=f"analisis_riesgo_{scenario_type}_colab.ipynb",
+            file_name="analisis_riesgo_personalizado_colab.ipynb",
             mime="application/x-ipynb+json",
             use_container_width=True,
             type="primary"
