@@ -21,10 +21,27 @@ if hasattr(sys.stderr, 'reconfigure'):
         pass
 
 # Import our custom modules
-from risk_engine import run_monte_carlo_generic
-from agents_setup import run_strategic_crew
-from colab_generator import generate_colab_notebook
-from doc_parser import parse_business_file, extract_parameters_via_gemini, clean_to_ascii
+try:
+    from risk_engine import run_monte_carlo_generic
+    from colab_generator import generate_colab_notebook
+    from doc_parser import parse_business_file, extract_parameters_via_gemini, clean_to_ascii
+    import_error_main = None
+except Exception as e:
+    import_error_main = e
+
+try:
+    from agents_setup import run_strategic_crew
+    has_crewai = True
+    crewai_import_error = None
+except Exception as e:
+    has_crewai = False
+    crewai_import_error = e
+
+if import_error_main is not None:
+    import traceback
+    st.error("Error al importar módulos principales (risk_engine, colab_generator, doc_parser).")
+    st.exception(import_error_main)
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -396,7 +413,7 @@ with tab2:
         "y calcular métricas de riesgo fundamentales para proteger la caja."
     )
     
-    if st.button("🎲 Ejecutar Simulación Monte Carlo", type="primary", use_container_width=True):
+    if st.button("🎲 Ejecutar Simulación Monte Carlo", type="primary", width="stretch"):
         # Clear old crew report on a new simulation run
         if 'crew_report' in st.session_state:
             del st.session_state['crew_report']
@@ -482,7 +499,7 @@ with tab2:
                 xaxis=dict(showgrid=True, gridcolor="#334155"),
                 yaxis=dict(showgrid=True, gridcolor="#334155")
             )
-            st.plotly_chart(fig_hist, use_container_width=True)
+            st.plotly_chart(fig_hist, width="stretch")
             
         with col_chart2:
             st.markdown("#### Análisis de Sensibilidad (Tornado)")
@@ -504,7 +521,7 @@ with tab2:
                 xaxis=dict(title="Coeficiente de Correlación de Pearson", showgrid=True, gridcolor="#334155"),
                 yaxis=dict(title="")
             )
-            st.plotly_chart(fig_sens, use_container_width=True)
+            st.plotly_chart(fig_sens, width="stretch")
             st.caption("Un valor cercano a -1.0 indica que al subir esa variable, el beneficio baja drásticamente. Un valor cercano a +1.0 indica que el beneficio sube al incrementarse esa variable.")
             
         # Summary dataframe
@@ -532,7 +549,21 @@ with tab3:
         "para examinar los números de la simulación de Monte Carlo e idear el plan de mitigación personalizado."
     )
     
-    if 'sim_data' not in st.session_state:
+    if not has_crewai:
+        st.error("⚠️ El módulo de Agentes de CrewAI no está disponible en este entorno.")
+        st.markdown(
+            "Esto ocurre generalmente si la biblioteca `crewai` no pudo ser instalada debido a limitaciones "
+            "de compilación de dependencias (como `chromadb`) en el servidor de Streamlit Cloud o si "
+            "la versión de Python seleccionada en la nube es inferior a 3.10.\n\n"
+            "**Cómo solucionarlo en Streamlit Cloud:**\n"
+            "1. Abre la configuración de tu aplicación en el dashboard de Streamlit Community Cloud (clic en *Manage app* y luego en los tres puntos de configuración).\n"
+            "2. Cambia la versión de Python a **3.10** o **3.11** (las versiones recomendadas para CrewAI).\n"
+            "3. En tu archivo `requirements.txt`, puedes intentar remover cualquier especificación de versión conflictiva o forzar una reinstalación limpia del proyecto en la nube.\n"
+            "4. Mientras tanto, puedes usar la pestaña de **Simulación Monte Carlo** para ejecutar el análisis cuantitativo y la pestaña de **Google Colab** para descargar el cuaderno interactivo y ejecutar la parte de agentes en Colab de forma totalmente gratuita."
+        )
+        with st.expander("🔍 Ver el detalle del error de importación"):
+            st.exception(crewai_import_error)
+    elif 'sim_data' not in st.session_state:
         st.warning("Primero debes correr la simulación en la pestaña anterior para poder analizarla con los agentes.")
     else:
         active_key = openai_key if api_provider == "OpenAI" else api_key
@@ -541,7 +572,7 @@ with tab3:
         if not active_key:
             st.error(f"⚠️ Falta la API Key de {provider_name}. Por favor, ingrésala en la barra lateral para poder ejecutar los agentes.")
         else:
-            if st.button("🤖 Iniciar Ejecución del Equipo de Agentes", type="primary", use_container_width=True):
+            if st.button("🤖 Iniciar Ejecución del Equipo de Agentes", type="primary", width="stretch"):
                 sd = st.session_state['sim_data']
                 
                 st.markdown("#### 📺 Consola de Razonamiento de Agentes (Live Log)")
@@ -612,7 +643,7 @@ with tab4:
             data=notebook_json,
             file_name="analisis_riesgo_personalizado_colab.ipynb",
             mime="application/x-ipynb+json",
-            use_container_width=True,
+            width="stretch",
             type="primary"
         )
         
