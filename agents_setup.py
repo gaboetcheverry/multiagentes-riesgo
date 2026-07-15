@@ -1,5 +1,10 @@
 import os
 import sys
+
+# Force UTF-8 and disable telemetry to prevent environment encoding issues on Streamlit Cloud
+os.environ["PYTHONUTF8"] = "1"
+os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+
 from crewai import Agent, Task, Crew, Process
 
 try:
@@ -33,20 +38,23 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
     Configura y ejecuta los agentes de CrewAI para realizar el análisis de riesgo estratégico.
     Ingesta los resultados cuantitativos de la simulación de Monte Carlo.
     """
-    # Limpiar espacios en blanco de las claves si son cadenas
+    # Limpiar espacios en blanco de las claves si son cadenas y asegurar ASCII
     if isinstance(api_key, str):
-        api_key = api_key.strip()
+        api_key = clean_to_ascii(api_key).strip()
     if isinstance(openai_key, str):
-        openai_key = openai_key.strip()
+        openai_key = clean_to_ascii(openai_key).strip()
 
-    # Establecer claves en el entorno si se suministran
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    if openai_key:
-        os.environ["OPENAI_API_KEY"] = openai_key
-        
     # Verificar si es un modelo de OpenAI o de Gemini
     is_openai = (model_name.startswith("gpt-") or model_name.startswith("openai/") or model_name.startswith("o1-") or model_name.startswith("o3-"))
+
+    # Establecer claves en el entorno si se suministran y limpiar residuos
+    if api_key:
+        os.environ["GEMINI_API_KEY"] = api_key
+    
+    if openai_key:
+        os.environ["OPENAI_API_KEY"] = openai_key
+    elif "OPENAI_API_KEY" in os.environ:
+        del os.environ["OPENAI_API_KEY"]
     
     if is_openai:
         if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"]:
@@ -150,12 +158,34 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         agent=estratega_negocios
     )
 
+    # Configurar el embedder adecuado para evitar fallbacks a OpenAI con claves incorrectas/no configuradas
+    embedder_config = None
+    if is_openai:
+        if openai_key:
+            embedder_config = {
+                "provider": "openai",
+                "config": {
+                    "model": "text-embedding-3-small",
+                    "api_key": openai_key
+                }
+            }
+    else:
+        if api_key:
+            embedder_config = {
+                "provider": "google",
+                "config": {
+                    "model": "models/text-embedding-004",
+                    "api_key": api_key
+                }
+            }
+
     # 3. Instanciar la tripulación (Crew)
     equipo_consultoria = Crew(
         agents=[analista_datos, estratega_negocios],
         tasks=[tarea_analisis, tarea_estrategia],
         process=Process.sequential,
-        verbose=True
+        verbose=True,
+        embedder=embedder_config
     )
 
     # Ejecución
