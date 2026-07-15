@@ -2,8 +2,7 @@ import streamlit as st
 import os
 import sys
 
-# Force UTF-8 encoding and disable telemetry to prevent environment/encoding issues on Streamlit Cloud
-os.environ["PYTHONUTF8"] = "1"
+# Disable telemetry to prevent environment/encoding issues on Streamlit Cloud
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 
 # Force Streamlit Cloud to load fresh versions of local modules from disk instead of using stale in-memory cache

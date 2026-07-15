@@ -1,8 +1,7 @@
 import os
 import sys
 
-# Force UTF-8 and disable telemetry to prevent environment encoding issues on Streamlit Cloud
-os.environ["PYTHONUTF8"] = "1"
+# Disable telemetry to prevent environment encoding issues on Streamlit Cloud
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
 
 from crewai import Agent, Task, Crew, Process
