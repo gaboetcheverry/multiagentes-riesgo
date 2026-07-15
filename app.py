@@ -1,6 +1,10 @@
 import streamlit as st
 import os
 import sys
+# Force Streamlit Cloud to load fresh versions of local modules from disk instead of using stale in-memory cache
+for module_name in ['risk_engine', 'agents_setup', 'colab_generator', 'doc_parser']:
+    if module_name in sys.modules:
+        del sys.modules[module_name]
 import io
 import queue
 import pandas as pd
