@@ -4,6 +4,7 @@ import sys
 
 # Disable telemetry to prevent environment/encoding issues on Streamlit Cloud
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+os.environ["PYTHONIOENCODING"] = "utf-8"
 
 # Force Streamlit Cloud to load fresh versions of local modules from disk instead of using stale in-memory cache
 for module_name in ['risk_engine', 'agents_setup', 'colab_generator', 'doc_parser']:
@@ -32,7 +33,7 @@ if hasattr(sys.stderr, 'reconfigure'):
 try:
     from risk_engine import run_monte_carlo_generic
     from colab_generator import generate_colab_notebook
-    from doc_parser import parse_business_file, extract_parameters_via_gemini, clean_to_ascii
+    from doc_parser import parse_business_file, extract_parameters_via_openai, clean_to_ascii
     import_error_main = None
 except Exception as e:
     import_error_main = e
@@ -163,19 +164,47 @@ st.markdown("""
 
 # Custom stdout redirector to capture logs live
 class StreamlitRedirect:
+    """Captures stdout output and displays it in a Streamlit code block.
+    Handles encoding errors from CrewAI's emoji-heavy internal logging."""
     def __init__(self, placeholder):
         self.placeholder = placeholder
         self.text = ""
+        # Regex to strip ANSI escape codes
+        import re
+        self._ansi_re = re.compile(r'\x1b\[[0-9;]*m')
         
     def write(self, text):
-        cleaned_text = text.replace('\x1b[1;30m', '').replace('\x1b[0m', '').replace('\x1b[1;32m', '').replace('\x1b[1;31m', '').replace('\x1b[32m', '').replace('\x1b[1;36m', '').replace('\x1b[92m', '').replace('\x1b[99m', '')
-        self.text += cleaned_text
-        if len(self.text) > 100000:
-            self.text = self.text[-80000:]
-        self.placeholder.code(self.text)
+        try:
+            if not isinstance(text, str):
+                text = str(text)
+            # Strip ANSI escape codes
+            cleaned_text = self._ansi_re.sub('', text)
+            # Replace common emoji that cause encoding issues with text equivalents
+            emoji_map = {
+                '\U0001f680': '[ROCKET]', '\U0001f916': '[ROBOT]',
+                '\U0001f4cb': '[CLIPBOARD]', '\U0001f4ca': '[CHART]',
+                '\U0001f50d': '[SEARCH]', '\u2705': '[OK]',
+                '\u274c': '[X]', '\u26a0': '[WARN]',
+                '\U0001f4a1': '[IDEA]', '\U0001f3af': '[TARGET]',
+            }
+            for emoji, replacement in emoji_map.items():
+                cleaned_text = cleaned_text.replace(emoji, replacement)
+            # Final safety: encode to ascii and back to strip any remaining problematic chars
+            cleaned_text = cleaned_text.encode('ascii', errors='replace').decode('ascii')
+            self.text += cleaned_text
+            if len(self.text) > 100000:
+                self.text = self.text[-80000:]
+            self.placeholder.code(self.text)
+        except Exception:
+            # Absolute fallback: never crash on logging
+            pass
         
     def flush(self):
         pass
+    
+    @property
+    def encoding(self):
+        return 'utf-8'
 
 # Header Section
 st.markdown("""
@@ -189,54 +218,23 @@ st.markdown("""
 # Sidebar Setup
 st.sidebar.markdown("### 🔑 Configuración del Entorno")
 
-gemini_key_placeholder = os.environ.get("GEMINI_API_KEY", "")
 openai_key_placeholder = os.environ.get("OPENAI_API_KEY", "")
 
-api_provider = st.sidebar.selectbox(
-    "Proveedor de IA Activo",
-    ["Google Gemini", "OpenAI"],
-    index=0,
-    help="Elige qué proveedor utilizar tanto para extraer datos de los archivos como para ejecutar los agentes."
+openai_key = st.sidebar.text_input(
+    "OpenAI API Key", 
+    value=openai_key_placeholder,
+    type="password",
+    help="Necesaria para ejecutar los agentes y analizar archivos con OpenAI."
 )
 
-api_key = ""
-openai_key = ""
-
-if api_provider == "Google Gemini":
-    api_key = st.sidebar.text_input(
-        "Gemini API Key", 
-        value=gemini_key_placeholder,
-        type="password",
-        help="Necesaria para ejecutar los agentes y analizar archivos con Google Gemini."
-    )
-    openai_key = openai_key_placeholder
-else:
-    openai_key = st.sidebar.text_input(
-        "OpenAI API Key", 
-        value=openai_key_placeholder,
-        type="password",
-        help="Necesaria para ejecutar los agentes y analizar archivos con OpenAI."
-    )
-    api_key = gemini_key_placeholder
-
-# Optional secondary key input
-with st.sidebar.expander("🔑 Configurar Clave Secundaria (Opcional)"):
-    if api_provider == "Google Gemini":
-        openai_key = st.sidebar.text_input("OpenAI API Key", value=openai_key, type="password")
-    else:
-        api_key = st.sidebar.text_input("Gemini API Key", value=api_key, type="password")
-
-# Set the environment variables in memory
-if api_key:
-    os.environ["GEMINI_API_KEY"] = api_key
+# Set the environment variables in memory and clear Gemini
 if openai_key:
     os.environ["OPENAI_API_KEY"] = openai_key
+if "GEMINI_API_KEY" in os.environ:
+    del os.environ["GEMINI_API_KEY"]
 
-# Model options based on active provider
-if api_provider == "Google Gemini":
-    model_options = ["gemini/gemini-1.5-flash", "gemini/gemini-1.5-pro", "gemini/gemini-2.5-flash"]
-else:
-    model_options = ["gpt-4o-mini", "gpt-4o", "o3-mini"]
+# Model options based on OpenAI
+model_options = ["gpt-4o-mini", "gpt-4o", "o3-mini"]
 
 model_option = st.sidebar.selectbox(
     "Modelo de Lenguaje (LLM)",
@@ -345,13 +343,13 @@ with tab1:
     if uploaded_file is not None:
         safe_filename = clean_to_ascii(uploaded_file.name)
         if 'last_uploaded_filename' not in st.session_state or st.session_state['last_uploaded_filename'] != safe_filename:
-            active_key = openai_key if api_provider == "OpenAI" else api_key
-            provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
+            active_key = openai_key
+            provider_name = "OpenAI"
             
             if not active_key:
                 st.warning(
-                    f"⚠️ Has subido un archivo, pero no has configurado tu **{provider_name} API Key** en la barra lateral. "
-                    f"Ingresa la clave para que {provider_name} pueda analizar el archivo y rellenar el formulario de forma automática. "
+                    "⚠️ Has subido un archivo, pero no has configurado tu **OpenAI API Key** en la barra lateral. "
+                    "Ingresa la clave para que OpenAI pueda analizar el archivo y rellenar el formulario de forma automática. "
                     "De lo contrario, puedes rellenar los datos manualmente en la barra lateral."
                 )
             else:
@@ -360,7 +358,7 @@ with tab1:
                     try:
                         doc_text = parse_business_file(file_bytes, safe_filename)
                         clean_model_name = model_option.split('/')[-1] if '/' in model_option else model_option
-                        extracted = extract_parameters_via_gemini(doc_text, safe_filename, active_key, model_name=clean_model_name)
+                        extracted = extract_parameters_via_openai(doc_text, safe_filename, active_key, model_name=clean_model_name)
                         
                         # Update session state values
                         st.session_state['custom_title'] = str(extracted.get('scenario_title', 'Proyecto de Negocio Personalizado'))
@@ -574,8 +572,8 @@ with tab3:
     elif 'sim_data' not in st.session_state:
         st.warning("Primero debes correr la simulación en la pestaña anterior para poder analizarla con los agentes.")
     else:
-        active_key = openai_key if api_provider == "OpenAI" else api_key
-        provider_name = "OpenAI" if api_provider == "OpenAI" else "Gemini"
+        active_key = openai_key
+        provider_name = "OpenAI"
         
         if not active_key:
             st.error(f"⚠️ Falta la API Key de {provider_name}. Por favor, ingrésala en la barra lateral para poder ejecutar los agentes.")
@@ -589,11 +587,12 @@ with tab3:
                 
                 stdout_redirect = StreamlitRedirect(log_placeholder)
                 old_stdout = sys.stdout
+                old_stderr = sys.stderr
                 sys.stdout = stdout_redirect
+                sys.stderr = stdout_redirect  # Capture stderr too (CrewAI logs warnings there)
                 
                 try:
                     report_result = run_strategic_crew(
-                        api_key=api_key,
                         openai_key=openai_key,
                         scenario_name=sd['scenario_title'],
                         scenario_description=sd['scenario_description'],
@@ -602,14 +601,17 @@ with tab3:
                         model_name=model_option
                     )
                     
-                    sys.stdout = old_stdout
-                    
                     st.session_state['crew_report'] = report_result
                     st.success("¡Análisis estratégico completado!")
                 except Exception as e:
-                    sys.stdout = old_stdout
-                    st.error(f"Error durante la ejecución de los agentes: {str(e)}")
+                    error_msg = str(e)
+                    # Sanitize error message to prevent encoding issues in Streamlit
+                    error_msg = error_msg.encode('ascii', errors='replace').decode('ascii')
+                    st.error(f"Error durante la ejecución de los agentes: {error_msg}")
                     st.info("Verifica que tu clave de API sea válida y que tengas conexión a internet.")
+                finally:
+                    sys.stdout = old_stdout
+                    sys.stderr = old_stderr
 
             # Show report if available
             if 'crew_report' in st.session_state:

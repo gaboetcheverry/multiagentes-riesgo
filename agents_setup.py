@@ -1,8 +1,12 @@
 import os
 import sys
+import logging
 
 # Disable telemetry to prevent environment encoding issues on Streamlit Cloud
 os.environ["CREWAI_DISABLE_TELEMETRY"] = "true"
+
+# Force UTF-8 encoding for subprocess safety (CrewAI internal logging uses emojis)
+os.environ["PYTHONIOENCODING"] = "utf-8"
 
 from crewai import Agent, Task, Crew, Process
 
@@ -32,42 +36,56 @@ def clean_to_ascii(text):
         
     return only_ascii.encode('ascii', errors='ignore').decode('ascii')
 
-def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, sensitivity, model_name="gemini/gemini-1.5-flash", openai_key=None):
+
+class _SafeStream:
+    """Wraps a stream to silently handle encoding errors from CrewAI's emoji-heavy logging."""
+    def __init__(self, stream):
+        self._stream = stream
+    
+    def write(self, text):
+        try:
+            self._stream.write(text)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Strip non-ASCII characters and retry
+            safe_text = text.encode('ascii', errors='replace').decode('ascii')
+            try:
+                self._stream.write(safe_text)
+            except Exception:
+                pass
+        except Exception:
+            pass
+    
+    def flush(self):
+        try:
+            self._stream.flush()
+        except Exception:
+            pass
+    
+    def __getattr__(self, name):
+        return getattr(self._stream, name)
+
+
+def run_strategic_crew(openai_key, scenario_name, scenario_description, metrics, sensitivity, model_name="gpt-4o-mini"):
     """
     Configura y ejecuta los agentes de CrewAI para realizar el análisis de riesgo estratégico.
     Ingesta los resultados cuantitativos de la simulación de Monte Carlo.
     """
-    # Limpiar espacios en blanco de las claves si son cadenas y asegurar ASCII
-    if isinstance(api_key, str):
-        api_key = clean_to_ascii(api_key).strip()
+    # Limpiar espacios en blanco de las claves y asegurar ASCII
     if isinstance(openai_key, str):
         openai_key = clean_to_ascii(openai_key).strip()
 
-    # Verificar si es un modelo de OpenAI o de Gemini
-    is_openai = (model_name.startswith("gpt-") or model_name.startswith("openai/") or model_name.startswith("o1-") or model_name.startswith("o3-"))
-
-    # Establecer claves en el entorno si se suministran y limpiar residuos
-    if api_key:
-        os.environ["GEMINI_API_KEY"] = api_key
-    
+    # Establecer la clave en el entorno y limpiar residuos de Gemini
     if openai_key:
         os.environ["OPENAI_API_KEY"] = openai_key
-    elif "OPENAI_API_KEY" in os.environ:
-        del os.environ["OPENAI_API_KEY"]
-    
-    if is_openai:
-        if "OPENAI_API_KEY" not in os.environ or not os.environ["OPENAI_API_KEY"]:
-            raise ValueError("La API Key de OpenAI no está configurada. Por favor, ingrésala en la barra lateral.")
     else:
-        if "GEMINI_API_KEY" not in os.environ or not os.environ["GEMINI_API_KEY"]:
-            raise ValueError("La API Key de Gemini no está configurada. Por favor, ingrésala en la barra lateral.")
+        raise ValueError("La API Key de OpenAI no está configurada. Por favor, ingrésala en la barra lateral.")
         
+    if "GEMINI_API_KEY" in os.environ:
+        del os.environ["GEMINI_API_KEY"]
+
     # Instanciar LLM de manera explícita para evitar fallbacks incorrectos
     if has_llm_class:
-        if is_openai:
-            llm_inst = LLM(model=model_name, api_key=openai_key)
-        else:
-            llm_inst = LLM(model=model_name, api_key=api_key)
+        llm_inst = LLM(model=model_name, api_key=openai_key)
     else:
         llm_inst = model_name
     
@@ -157,26 +175,14 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         agent=estratega_negocios
     )
 
-    # Configurar el embedder adecuado para evitar fallbacks a OpenAI con claves incorrectas/no configuradas
-    embedder_config = None
-    if is_openai:
-        if openai_key:
-            embedder_config = {
-                "provider": "openai",
-                "config": {
-                    "model": "text-embedding-3-small",
-                    "api_key": openai_key
-                }
-            }
-    else:
-        if api_key:
-            embedder_config = {
-                "provider": "google",
-                "config": {
-                    "model": "models/text-embedding-004",
-                    "api_key": api_key
-                }
-            }
+    # Configurar el embedder de OpenAI explícitamente (usa model_name, no model)
+    embedder_config = {
+        "provider": "openai",
+        "config": {
+            "model_name": "text-embedding-3-small",
+            "api_key": openai_key
+        }
+    }
 
     # 3. Instanciar la tripulación (Crew)
     equipo_consultoria = Crew(
@@ -187,7 +193,41 @@ def run_strategic_crew(api_key, scenario_name, scenario_description, metrics, se
         embedder=embedder_config
     )
 
-    # Ejecución
-    resultado_final = equipo_consultoria.kickoff()
+    # 4. Protect stdout/stderr from CrewAI's emoji-rich event bus crashing on Windows charmap
+    #    CrewAI internally prints 🚀 🤖 etc. which fail on 'charmap' codec
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    
+    # Suppress noisy CrewAI event bus loggers that emit emojis
+    for logger_name in ['crewai.utilities.events', 'crewai.flow.runtime', 'crewai']:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.WARNING)
+
+    # Wrap streams only if they don't support UTF-8 natively
+    stdout_needs_wrap = True
+    stderr_needs_wrap = True
+    try:
+        if hasattr(sys.stdout, 'encoding') and sys.stdout.encoding and 'utf' in sys.stdout.encoding.lower():
+            stdout_needs_wrap = False
+    except Exception:
+        pass
+    try:
+        if hasattr(sys.stderr, 'encoding') and sys.stderr.encoding and 'utf' in sys.stderr.encoding.lower():
+            stderr_needs_wrap = False
+    except Exception:
+        pass
+    
+    if stdout_needs_wrap:
+        sys.stdout = _SafeStream(original_stdout)
+    if stderr_needs_wrap:
+        sys.stderr = _SafeStream(original_stderr)
+
+    try:
+        # Ejecución
+        resultado_final = equipo_consultoria.kickoff()
+    finally:
+        # Always restore original streams
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
     
     return resultado_final
